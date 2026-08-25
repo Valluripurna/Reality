@@ -11,8 +11,23 @@ const PORT = process.env.PORT || 5000;
 let memoryJobs = [];
 let memoryPros = [];
 
+const mongoose = require('mongoose');
+
+const MONGODB_URI = process.env.MONGODB_URI || '';
+
+if (MONGODB_URI && MONGODB_URI.startsWith('mongodb')) {
+  mongoose.connect(MONGODB_URI)
+    .then(() => console.log('🍃 Connected to MongoDB Atlas cluster successfully!'))
+    .catch(err => console.warn('⚠️ MongoDB Atlas connection warning (falling back to memory store):', err.message));
+}
+
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', server: 'RealityChain Express MongoDB Backend', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    server: 'RealityChain Express MongoDB Backend',
+    mongoConnected: mongoose.connection.readyState === 1,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // GET /api/jobs

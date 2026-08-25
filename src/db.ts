@@ -127,13 +127,18 @@ export class DatabaseEngine {
     }
   }
 
-  // Shared Global Marketplace Jobs Pool (With Hidden Cloud Sync Relay)
+  // Shared Global Marketplace Jobs Pool (With Dynamic Ngrok & Cloud Relay)
   static async saveJobs(jobs: ServiceJob[]): Promise<void> {
     try {
       await AsyncStorage.setItem('rc_shared_marketplace_jobs_v6', JSON.stringify(jobs));
 
-      // Push to clean cloud JSON KV store
-      fetch('https://kvdb.io/RealityChainV6/jobs', {
+      const ngrokBase = process.env.EXPO_PUBLIC_API_URL;
+      const targetUrl = ngrokBase && ngrokBase.startsWith('http')
+        ? `${ngrokBase.replace(/\/$/, '')}/api/jobs`
+        : 'https://kvdb.io/RealityChainV6/jobs';
+
+      // Push to active ngrok backend or cloud KV store
+      fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jobs)
@@ -148,10 +153,16 @@ export class DatabaseEngine {
       const raw = await AsyncStorage.getItem('rc_shared_marketplace_jobs_v6');
       let localJobs: ServiceJob[] = raw ? JSON.parse(raw) : [];
 
+      const ngrokBase = process.env.EXPO_PUBLIC_API_URL;
+      const targetUrl = ngrokBase && ngrokBase.startsWith('http')
+        ? `${ngrokBase.replace(/\/$/, '')}/api/jobs`
+        : 'https://kvdb.io/RealityChainV6/jobs';
+
       try {
-        const res = await fetch('https://kvdb.io/RealityChainV6/jobs', { signal: AbortSignal.timeout(2000) });
+        const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
         if (res.ok) {
-          const json: ServiceJob[] = await res.json();
+          const resData = await res.json();
+          const json: ServiceJob[] = Array.isArray(resData) ? resData : (resData?.data ?? []);
           if (Array.isArray(json) && json.length > 0) {
             localJobs = json;
             await AsyncStorage.setItem('rc_shared_marketplace_jobs_v6', JSON.stringify(localJobs));

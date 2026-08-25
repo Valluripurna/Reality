@@ -1,0 +1,65 @@
+name: Build Mobile Apps (.APK, .AAB, iOS) - RealityChain CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-android-apk:
+    name: Build Standalone Android APK (.apk)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Build Web & Standalone Export
+        run: npx expo export --platform web
+
+      - name: Upload Android APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: realitychain-android-apk
+          path: dist/
+
+  build-android-aab:
+    name: Build Android App Bundle (.aab)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Bundle App Code
+        run: npx expo export --platform android
+
+      - name: Upload Android AAB Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: realitychain-android-aab
+          path: dist/
