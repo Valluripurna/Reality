@@ -7,6 +7,16 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "androidStatusBar": { "backgroundColor": "#FAFBF9", "barStyle": "dark-content", "translucent": false },
+    "android": {
+      "package": "com.realitychain.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.realitychain.app",
+      "supportsTablet": true
+    },
     "plugins": ["expo-router", ["expo-image-picker", { "photosPermission": "Allow RealityChain to attach evidence from your photos." }]],
     "experiments": { "typedRoutes": true }
   }
