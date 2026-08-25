@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "RealityChain",
+    "slug": "realitychain",
+    "scheme": "realitychain",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "androidStatusBar": { "backgroundColor": "#FAFBF9", "barStyle": "dark-content", "translucent": false },
+    "plugins": ["expo-router", ["expo-image-picker", { "photosPermission": "Allow RealityChain to attach evidence from your photos." }]],
+    "experiments": { "typedRoutes": true }
+  }
+}
