@@ -10,7 +10,7 @@ env:
 
 jobs:
   build-apk:
-    name: Build Standalone Android APK
+    name: Build Standalone Installable Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -32,17 +32,17 @@ jobs:
       - name: Install Project Dependencies
         run: npm ci
 
-      - name: Setup EAS CLI
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Generate Native Android Code
+        run: npx expo prebuild --platform android --clean
 
-      - name: Build Android Standalone APK File
-        run: npx expo export --platform android
+      - name: Build Standalone Android APK Binary File
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
 
-      - name: Upload Build Artifacts
+      - name: Upload Installable APK Artifact (.apk)
         uses: actions/upload-artifact@v4
         with:
-          name: realitychain-android-apk
-          path: dist/
+          name: realitychain-app-release-apk
+          path: android/app/build/outputs/apk/release/*.apk

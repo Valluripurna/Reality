@@ -32,14 +32,20 @@ jobs:
       - name: Install Project Dependencies
         run: npm ci
 
-      - name: Build Web & Standalone Export
-        run: npx expo export --platform web
+      - name: Generate Native Android Project
+        run: npx expo prebuild --platform android --clean
 
-      - name: Upload Android APK Artifacts
+      - name: Build Native Standalone APK Binary
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Upload Installable Android APK Binary (.apk)
         uses: actions/upload-artifact@v4
         with:
-          name: realitychain-android-apk
-          path: dist/
+          name: realitychain-installable-apk
+          path: android/app/build/outputs/apk/release/*.apk
 
   build-android-aab:
     name: Build Android App Bundle (.aab)
@@ -55,14 +61,26 @@ jobs:
           node-version: 22
           cache: 'npm'
 
+      - name: Setup Java JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Install Project Dependencies
         run: npm ci
 
-      - name: Bundle App Code
-        run: npx expo export --platform android
+      - name: Generate Native Android Project
+        run: npx expo prebuild --platform android --clean
 
-      - name: Upload Android AAB Artifacts
+      - name: Build Play Store App Bundle Binary (.aab)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew bundleRelease --no-daemon
+
+      - name: Upload Play Store Android AAB Binary (.aab)
         uses: actions/upload-artifact@v4
         with:
-          name: realitychain-android-aab
-          path: dist/
+          name: realitychain-playstore-aab
+          path: android/app/build/outputs/bundle/release/*.aab
