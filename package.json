@@ -8,6 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "server": "node server/index.js",
+    "tunnel": "npx ngrok http 5000",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

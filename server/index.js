@@ -1,18 +1,32 @@
+const fs = require('fs');
+const path = require('path');
+
+// Load environment variables from root .env file if available
+const envPath = path.join(__dirname, '../.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  envContent.split('\n').forEach(line => {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (match) {
+      const key = match[1];
+      let value = match[2] || '';
+      if (value.length > 0 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"') {
+        value = value.replace(/\\n/gm, '\n');
+      }
+      process.env[key] = value.replace(/(^['"]|['"]$)/g, '').trim();
+    }
+  });
+}
+
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
-
-// In-Memory & Cloud Relay Jobs & Pros Storage Pool
-let memoryJobs = [];
-let memoryPros = [];
-
-const mongoose = require('mongoose');
-
 const MONGODB_URI = process.env.MONGODB_URI || '';
 
 if (MONGODB_URI && MONGODB_URI.startsWith('mongodb')) {
