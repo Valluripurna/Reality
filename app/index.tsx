@@ -66,11 +66,13 @@ export default function Home() {
       <HomeHeader
         left={
           <Pressable testID="location-picker" onPress={() => setLocationOpen(true)} accessibilityRole="button" accessibilityLabel="Change service address" hitSlop={6}>
-            <View style={s.locRow}>
-              <Icon name="location" size={14} color={C.ink} />
-              <Text style={type.bodyStrong} numberOfLines={1}>{place}</Text>
-              <Icon name="chevron-down" size={14} color={C.ink} />
-            </View>
+<View style={s.locRow}>
+                <View style={{ marginLeft: -4 }}>
+                  <Icon name="location" size={14} color={C.ink} />
+                </View>
+                <Text style={type.bodyStrong} numberOfLines={1}>{place}</Text>
+                <Icon name="chevron-down" size={14} color={C.ink} />
+              </View>
             <Text style={[type.caption, { marginLeft: 20 }]} numberOfLines={1}>{placeSub}</Text>
           </Pressable>
         }
