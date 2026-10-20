@@ -36,7 +36,11 @@ export type RemoteConfig = {
 };
 
 const CACHE_KEY = 'rc_remote_config_v1';
-const DISMISS_KEY = 'rc_banner_dismissed_v1';
+// v2: dismissals expire after a day, so a hidden announcement comes back.
+const DISMISS_KEY = 'rc_banner_dismissed_v2';
+const DISMISS_TTL = 24 * 60 * 60 * 1000;
+
+type DismissedEntry = { id: string; at: number };
 
 export const DEFAULT_CONFIG: RemoteConfig = {
   version: 1,
@@ -46,7 +50,7 @@ export const DEFAULT_CONFIG: RemoteConfig = {
       enabled: true,
       audience: 'customer',
       title: '{{name}}, not sure what the job should cost?',
-      body: 'Describe the problem and get likely causes plus a fair range before you book. You and your pro agree the price.',
+      body: 'Describe the problem for likely causes and a fair range.',
       cta: 'Ask the assistant',
       icon: 'chatbubbles-outline',
       tone: 'brand',
@@ -58,7 +62,7 @@ export const DEFAULT_CONFIG: RemoteConfig = {
       enabled: true,
       audience: 'pro',
       title: '{{name}}, more jobs near you',
-      body: 'Add the services you offer and go online — matching requests appear first in your feed.',
+      body: 'Add services and go online to see matching requests first.',
       cta: 'Update services',
       icon: 'briefcase-outline',
       tone: 'brand',
@@ -147,20 +151,35 @@ export function pickBanner(config: RemoteConfig, role: BannerAudience, now = Dat
 let memo: RemoteConfig = DEFAULT_CONFIG;
 let loading: Promise<RemoteConfig> | null = null;
 
-async function readDismissed(): Promise<string[]> {
+async function readDismissedEntries(): Promise<DismissedEntry[]> {
   try {
     const raw = await AsyncStorage.getItem(DISMISS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+    if (!Array.isArray(parsed)) return [];
+    const now = Date.now();
+    return parsed
+      .map(value => {
+        if (typeof value === 'string') return { id: value, at: now };
+        if (value && typeof value.id === 'string' && Number.isFinite(value.at)) {
+          return { id: value.id, at: value.at as number };
+        }
+        return null;
+      })
+      .filter((entry): entry is DismissedEntry => !!entry && now - entry.at < DISMISS_TTL);
   } catch {
     return [];
   }
 }
 
+async function readDismissed(): Promise<string[]> {
+  return (await readDismissedEntries()).map(entry => entry.id);
+}
+
 export async function dismissBanner(id: string): Promise<void> {
   try {
-    const list = await readDismissed();
-    if (!list.includes(id)) await AsyncStorage.setItem(DISMISS_KEY, JSON.stringify([...list, id].slice(-40)));
+    const entries = (await readDismissedEntries()).filter(entry => entry.id !== id);
+    entries.push({ id, at: Date.now() });
+    await AsyncStorage.setItem(DISMISS_KEY, JSON.stringify(entries.slice(-40)));
   } catch {
     // Dismissing is best-effort; the banner can reappear next launch.
   }

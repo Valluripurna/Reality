@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ImageBackground, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   BannerAudience,
   BannerTone,
+  DEFAULT_CONFIG,
   dismissBanner,
   dismissedBannerIds,
   pickBanner,
@@ -15,6 +16,12 @@ const tones: Record<BannerTone, { bg: string; title: string; body: string; iconB
   brand: { bg: C.brandSoft, title: C.brandDark, body: C.brandDark, iconBg: C.brand, icon: C.white, cta: C.brandDark },
   dark: { bg: C.ink, title: C.white, body: 'rgba(255,255,255,0.7)', iconBg: 'rgba(255,255,255,0.14)', icon: C.white, cta: C.white },
   amber: { bg: C.amberSoft, title: C.amberDark, body: C.amberDark, iconBg: C.amber, icon: C.white, cta: C.amberDark }
+};
+
+// Bundled banner artwork (1200×480) so image banners work offline and in Expo Go.
+const art: Record<BannerAudience, number> = {
+  customer: require('../assets/banners/customer.png'),
+  pro: require('../assets/banners/pro.png')
 };
 
 /**
@@ -48,7 +55,9 @@ export function HomeBanner({
     return () => { alive = false; };
   }, []);
 
-  const banner = pickBanner(config, role);
+  // A missing/empty cached config must never leave a home screen without its
+  // account banner, so fall back to the bundled default for this role.
+  const banner = pickBanner(config, role) ?? pickBanner(DEFAULT_CONFIG, role);
   if (!banner || dismissed.includes(banner.id)) return null;
 
   const tone = tones[banner.tone ?? 'brand'];
@@ -68,11 +77,21 @@ export function HomeBanner({
   };
 
   return (
-    <View testID={`home-banner-${role}`} style={[s.banner, { backgroundColor: tone.bg }]}>
+    <ImageBackground
+      testID={`home-banner-${role}`}
+      source={art[role]}
+      style={[s.banner, { backgroundColor: tone.bg }]}
+      imageStyle={s.art}
+      resizeMode="cover"
+    >
+      <View
+        pointerEvents="none"
+        style={[s.scrim, banner.tone === 'dark' ? s.scrimDark : s.scrimLight]}
+      />
       <View style={[s.icon, { backgroundColor: tone.iconBg }]}>
         <Icon name={icon} size={18} color={tone.icon} />
       </View>
-      <View style={{ flex: 1, gap: 3 }}>
+      <View style={{ flex: 1, gap: 3, paddingRight: 78 }}>
         <Text style={[s.title, { color: tone.title }]} numberOfLines={2}>{title}</Text>
         {body ? <Text style={[s.body, { color: tone.body }]} numberOfLines={3}>{body}</Text> : null}
         {banner.cta && banner.action ? (
@@ -87,12 +106,24 @@ export function HomeBanner({
           <Icon name="close" size={16} color={tone.body} />
         </Pressable>
       ) : null}
-    </View>
+    </ImageBackground>
   );
 }
 
 const s = StyleSheet.create({
-  banner: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, borderRadius: radius.lg },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    position: 'relative'
+  },
+  art: { width: '100%', height: '100%', borderRadius: radius.lg },
+  scrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  scrimLight: { backgroundColor: 'rgba(255,255,255,0.28)' },
+  scrimDark: { backgroundColor: 'rgba(17,18,20,0.55)' },
   icon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 14, lineHeight: 19, fontWeight: '700', letterSpacing: -0.1 },
   body: { fontSize: 12.5, lineHeight: 17 },

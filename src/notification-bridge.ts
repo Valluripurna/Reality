@@ -26,7 +26,10 @@ const PROMPT_KEY = 'rc_notifications_prompted_v1';
 const CHANNEL_ID = 'default';
 
 function nativeNotifications(): NotificationsApi | null {
-  if (Platform.OS === 'web') return null;
+  // Expo Go's Android runtime does not ship every module that the current
+  // expo-notifications package imports (ExpoTopicSubscriptionModule), so even
+  // requiring it throws. Expo Go gets in-app job alerts instead.
+  if (Platform.OS === 'web' || isExpoGo()) return null;
   if (cached !== undefined) return cached;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -114,11 +117,11 @@ export async function syncJobNotifications(
   role: NotifyRole,
   phone: string,
   jobs: ServiceJob[],
-  currentJobId?: string | null
+  currentJobId?: string | null,
+  onEvent?: (event: { title: string; body: string; jobId: string }) => void
 ): Promise<void> {
   if (Platform.OS === 'web' || !phone) return;
   const N = nativeNotifications();
-  if (!N) return;
   const keys = notificationKeys(role, phone);
   const [rawSeen, baseline] = await Promise.all([
     AsyncStorage.getItem(keys.seen).catch(() => null),
@@ -138,20 +141,24 @@ export async function syncJobNotifications(
   ]).catch(() => {});
 
   if (!baseline) return;
-  const granted = prepared === null ? await prepareNotifications() : allowed;
-  if (!granted) return;
-
+  const granted = N ? (prepared === null ? await prepareNotifications() : allowed) : false;
   for (const event of result.events) {
     if (currentJobId && event.jobId === currentJobId) continue;
-    await N.scheduleNotificationAsync({
-      content: {
-        title: event.title,
-        body: event.body,
-        data: { jobId: event.jobId },
-        sound: 'default'
-      },
-      trigger: null
-    }).catch(() => {});
+    if (N && granted) {
+      await N.scheduleNotificationAsync({
+        content: {
+          title: event.title,
+          body: event.body,
+          data: { jobId: event.jobId },
+          sound: 'default'
+        },
+        trigger: null
+      }).catch(() => {});
+    } else {
+      // Expo Go (or a denied permission): show the same update in-app so the
+      // account still hears about quotes, arrivals and payments.
+      onEvent?.(event);
+    }
   }
 }
 

@@ -30,22 +30,22 @@ export default function Layout() {
     <SafeAreaProvider>
       <EventProvider>
         <MarketplaceProvider>
-          <NotificationsProvider>
-          <LocationProvider>
           <ToastProvider>
-            <StatusBar style={showSplash ? 'light' : 'dark'} />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.white }, animation: 'slide_from_right' }}>
-              <Stack.Screen name="index" options={{ animation: 'fade' }} />
-              <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
-              <Stack.Screen name="bookings" options={{ animation: 'none' }} />
-              <Stack.Screen name="records" options={{ animation: 'none' }} />
-              <Stack.Screen name="profile" options={{ animation: 'none' }} />
-              <Stack.Screen name="pro" options={{ animation: 'none' }} />
-            </Stack>
-            {showSplash && <SplashScreenOverlay onFinish={finishSplash} />}
+            <NotificationsProvider>
+              <LocationProvider>
+                <StatusBar style={showSplash ? 'light' : 'dark'} />
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.white }, animation: 'slide_from_right' }}>
+                  <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="bookings" options={{ animation: 'none' }} />
+                  <Stack.Screen name="records" options={{ animation: 'none' }} />
+                  <Stack.Screen name="profile" options={{ animation: 'none' }} />
+                  <Stack.Screen name="pro" options={{ animation: 'none' }} />
+                </Stack>
+                {showSplash && <SplashScreenOverlay onFinish={finishSplash} />}
+              </LocationProvider>
+            </NotificationsProvider>
           </ToastProvider>
-          </LocationProvider>
-          </NotificationsProvider>
         </MarketplaceProvider>
       </EventProvider>
     </SafeAreaProvider>

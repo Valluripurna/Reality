@@ -8,6 +8,7 @@ import {
   registerForPush,
   syncJobNotifications
 } from './notification-bridge';
+import { useToast } from './toast';
 
 /**
  * Watches the signed-in account's jobs and turns meaningful transitions into
@@ -15,6 +16,7 @@ import {
  */
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { profile, jobs, ready } = useMarketplace();
+  const toast = useToast();
   const router = useRouter();
   const pathname = usePathname();
   const role = profile?.role;
@@ -53,7 +55,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!ready || !phone || !role) return;
     const currentJobId = pathname?.startsWith('/job/') ? pathname.split('/')[2] : null;
-    syncJobNotifications(role, phone, jobs, currentJobId).catch(() => {});
+    syncJobNotifications(role, phone, jobs, currentJobId, event => {
+      toast.show(`${event.title} — ${event.body}`, 'info');
+    }).catch(() => {});
     // jobsKey captures the fields that matter without rerunning on every poll.
   }, [ready, phone, role, jobsKey, pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 

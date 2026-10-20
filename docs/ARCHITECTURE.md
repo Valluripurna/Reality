@@ -100,7 +100,7 @@ src/
   assistant/engine.ts       # classifier, scorer, reply builder
   ai.ts                     # public re-export of the assistant
   ai-chat.tsx               # assistant sheet UI
-  banner.tsx                # per-account home banner ({{name}} + remote config)
+  banner.tsx                # image banner per account ({{name}} + remote config)
   remote-config.ts          # defaults, validation, cache + /api/config client
   notification-events.ts    # pure job -> notification rules
   notification-bridge.ts    # permission, local schedule, push token, deep link
@@ -476,7 +476,13 @@ validates in `src/remote-config.ts` and caches in AsyncStorage. Override it
 without any release using the `REMOTE_CONFIG_JSON` env var. The home banner
 (`src/banner.tsx`) is the first consumer: title, body, CTA, icon, tone, audience
 (customer/pro), schedule window and action can change server-side, and users
-can dismiss one per install. Each account gets its own banner and copy can use
+can dismiss one for a day (dismissals expire, so announcements return). The
+banner is image-backed: `assets/banners/customer.png` (house) and
+`assets/banners/pro.png` (briefcase + verified pin) are bundled 1200×480
+artworks rendered with `ImageBackground`, so the image works offline and in
+Expo Go; copy is overlaid on the calm left side. A bundled per-role banner is
+the fallback if the remote config is empty. Each account gets its own banner
+and copy can use
 `{{name}}` (e.g. `{{name}}, more jobs near you`) without exposing the profile to
 the config server. Remote data is treated as untrusted: only internal
 routes and `http(s)` links are allowed, text is length-capped, and unknown
@@ -486,15 +492,21 @@ fields/tones/audiences are dropped.
 
 ## 14. Notifications
 
-Two layers, because Expo Go cannot register remote push tokens on Android:
+Two layers, because Expo Go cannot register remote push tokens on Android and
+its current `expo-notifications` package references a native module Expo Go
+does not ship (`ExpoTopicSubscriptionModule`):
 
-* **Local (all native builds and Expo Go).** `src/notification-events.ts` turns
-  job changes into events — a quote for the customer, the current stage change,
-  a new open request for the pro, payment and rating. Keys are persisted per
-  phone/role (`rc_notif_seen_v1_*`) so nothing is announced twice; the first run
-  seeds current jobs silently. `src/notification-bridge.ts` asks for permission
-  once, draws the foreground banner and schedules the notification; tapping it
-  opens `/job/:id`. The job currently on screen is skipped.
+* **Local (installed builds).** `src/notification-events.ts` turns job changes
+  into events — a quote for the customer, the current stage change, a new open
+  request for the pro, payment and rating. Keys are persisted per phone/role
+  (`rc_notif_seen_v1_*`) so nothing is announced twice; the first run seeds
+  current jobs silently. `src/notification-bridge.ts` asks for permission once,
+  draws the foreground banner and schedules the notification; tapping it opens
+  `/job/:id`. The job currently on screen is skipped.
+* **Expo Go / denied permission.** The native module is never required (which
+  avoids the missing-module crash); the same deduped events are shown as an
+  in-app toast through `ToastProvider`. This keeps the account informed while
+  developing, without pretending remote push works there.
 * **Remote (development/standalone builds only).** A device registers its Expo
   push token with `POST /api/push/register`; the server stores the token in
   memory and sends through Expo's push service when a pro quotes
