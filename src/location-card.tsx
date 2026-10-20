@@ -70,7 +70,7 @@ export function LocationCard({ title = 'Your location', hint }: { title?: string
             pointerEvents="none"
             style={[s.ring, { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }), transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] }) }] }]}
           />
-          {busy ? <ActivityIndicator color={C.white} /> : <Icon name="locate" size={22} color={C.white} />}
+          {busy ? <ActivityIndicator size="small" color={C.white} /> : <Icon name="locate" size={18} color={C.white} />}
         </Pressable>
       </View>
 
@@ -97,11 +97,11 @@ export function LocationCard({ title = 'Your location', hint }: { title?: string
 }
 
 const s = StyleSheet.create({
-  card: { borderRadius: radius.lg, borderWidth: 1, borderColor: C.line, padding: 16, gap: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  locate: { width: 52, height: 52, borderRadius: 26, backgroundColor: C.brand, alignItems: 'center', justifyContent: 'center' },
-  ring: { position: 'absolute', width: 52, height: 52, borderRadius: 26, backgroundColor: C.brand },
+  card: { borderRadius: radius.lg, borderWidth: 1, borderColor: C.line, padding: 14, gap: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  locate: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.brand, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  ring: { position: 'absolute', width: 40, height: 40, borderRadius: 20, backgroundColor: C.brand },
   error: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.dangerSoft, padding: 10, borderRadius: 10 },
   footer: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  link: { color: C.brand, fontWeight: '600', fontSize: 14 }
+  link: { color: C.brand, fontWeight: '600', fontSize: 13 }
 });

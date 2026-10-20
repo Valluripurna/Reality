@@ -15,9 +15,11 @@ const banner = (over: Partial<BannerConfig> = {}): BannerConfig => ({
 });
 
 describe('remote banner config', () => {
-  it('ships a banner for each role', () => {
+  it('ships a banner for each surface', () => {
     expect(pickBanner(DEFAULT_CONFIG, 'customer')).not.toBeNull();
     expect(pickBanner(DEFAULT_CONFIG, 'pro')).not.toBeNull();
+    expect(pickBanner(DEFAULT_CONFIG, 'bookings')).not.toBeNull();
+    expect(pickBanner(DEFAULT_CONFIG, 'records')).not.toBeNull();
     expect(pickBanner(DEFAULT_CONFIG, 'customer')!.audience).toBe('customer');
   });
 

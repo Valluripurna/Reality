@@ -10,7 +10,7 @@ import { apiBase } from './db';
  * Banners are the first consumer, but the shape is intentionally generic so
  * more surfaces can be added without another store release.
  */
-export type BannerAudience = 'customer' | 'pro';
+export type BannerAudience = 'customer' | 'pro' | 'bookings' | 'records';
 export type BannerTone = 'brand' | 'dark' | 'amber';
 export type BannerAction = { type: 'route'; href: string } | { type: 'url'; url: string } | { type: 'assistant' };
 
@@ -43,37 +43,58 @@ const DISMISS_TTL = 24 * 60 * 60 * 1000;
 type DismissedEntry = { id: string; at: number };
 
 export const DEFAULT_CONFIG: RemoteConfig = {
-  version: 1,
+  version: 5,
   banners: [
     {
-      id: 'customer-spring-check',
+      id: 'customer-greeting-v2',
       enabled: true,
       audience: 'customer',
-      title: '{{name}}, not sure what the job should cost?',
-      body: 'Describe the problem for likely causes and a fair range.',
+      title: 'Hi {{name}}, what do you need help with?',
+      body: 'Describe the job. Compare fair quotes.',
       cta: 'Ask the assistant',
       icon: 'chatbubbles-outline',
       tone: 'brand',
       action: { type: 'assistant' },
-      dismissible: true
+      dismissible: false
     },
     {
-      id: 'pro-more-jobs',
+      id: 'pro-greeting-v2',
       enabled: true,
       audience: 'pro',
-      title: '{{name}}, more jobs near you',
-      body: 'Add services and go online to see matching requests first.',
+      title: 'Hi {{name}}, ready for your next job?',
+      body: 'Go online to see nearby jobs that fit your skills.',
       cta: 'Update services',
       icon: 'briefcase-outline',
-      tone: 'brand',
+      tone: 'dark',
       action: { type: 'route', href: '/profile' },
-      dismissible: true
+      dismissible: false
+    },
+    {
+      id: 'bookings-overview-v2',
+      enabled: true,
+      audience: 'bookings',
+      title: 'All your bookings',
+      body: 'Active jobs and past visits, in one place.',
+      icon: 'calendar-outline',
+      tone: 'amber',
+      dismissible: false
+    },
+    {
+      id: 'records-overview-v1',
+      enabled: true,
+      audience: 'records',
+      title: 'Every job, on the record',
+      body: 'Quotes, photos and payments stay saved for later.',
+      icon: 'document-text-outline',
+      tone: 'dark',
+      dismissible: false
     }
   ]
 };
 
 const MAX_BANNERS = 12;
 const MAX_TEXT = 180;
+const AUDIENCES: BannerAudience[] = ['customer', 'pro', 'bookings', 'records'];
 
 function text(value: unknown, max = MAX_TEXT): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : undefined;
@@ -100,12 +121,12 @@ function parseBanner(value: unknown): BannerConfig | null {
   const id = text(b.id, 60);
   const title = text(b.title);
   if (!id || !title) return null;
-  if (b.audience !== 'customer' && b.audience !== 'pro') return null;
+  if (!AUDIENCES.includes(b.audience as BannerAudience)) return null;
   const tone = b.tone === 'dark' || b.tone === 'amber' || b.tone === 'brand' ? b.tone : 'brand';
   return {
     id,
     enabled: b.enabled !== false,
-    audience: b.audience,
+    audience: b.audience as BannerAudience,
     title,
     body: text(b.body, 300),
     cta: text(b.cta, 40),
@@ -215,7 +236,9 @@ export async function loadRemoteConfig(): Promise<RemoteConfig> {
     try {
       const raw = await AsyncStorage.getItem(CACHE_KEY);
       const cached = raw ? normaliseRemoteConfig(JSON.parse(raw)) : null;
-      if (cached) memo = cached;
+      // A stale cache must not hide newer bundled defaults after an OTA.
+      if (cached && cached.version >= DEFAULT_CONFIG.version) memo = cached;
+      else memo = DEFAULT_CONFIG;
     } catch {}
     const remote = await fetchRemoteConfig();
     if (remote) {

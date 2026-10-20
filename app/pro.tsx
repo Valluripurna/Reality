@@ -134,7 +134,7 @@ export default function ProHome() {
 
   return (
     <View style={s.page}>
-      <HomeHeader showSOS left={<Text style={type.title}>Hi, {pro.name.split(' ')[0]}</Text>} />
+      <HomeHeader showSOS left={<Text style={type.title}>Service pro</Text>} />
       <FlatList
         data={online ? feed : []}
         keyExtractor={j => j.id}

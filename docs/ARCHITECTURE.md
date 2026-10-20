@@ -100,7 +100,7 @@ src/
   assistant/engine.ts       # classifier, scorer, reply builder
   ai.ts                     # public re-export of the assistant
   ai-chat.tsx               # assistant sheet UI
-  banner.tsx                # image banner per account ({{name}} + remote config)
+  banner.tsx                # animated image banner (home, bookings, records)
   remote-config.ts          # defaults, validation, cache + /api/config client
   notification-events.ts    # pure job -> notification rules
   notification-bridge.ts    # permission, local schedule, push token, deep link
@@ -473,17 +473,18 @@ version bump), which is exactly what makes the runtime version meaningful.
 
 **Remote config.** `/api/config` (server) serves a JSON document that the app
 validates in `src/remote-config.ts` and caches in AsyncStorage. Override it
-without any release using the `REMOTE_CONFIG_JSON` env var. The home banner
-(`src/banner.tsx`) is the first consumer: title, body, CTA, icon, tone, audience
-(customer/pro), schedule window and action can change server-side, and users
-can dismiss one for a day (dismissals expire, so announcements return). The
-banner is image-backed: `assets/banners/customer.png` (house) and
-`assets/banners/pro.png` (briefcase + verified pin) are bundled 1200×480
-artworks rendered with `ImageBackground`, so the image works offline and in
-Expo Go; copy is overlaid on the calm left side. A bundled per-role banner is
-the fallback if the remote config is empty. Each account gets its own banner
-and copy can use
-`{{name}}` (e.g. `{{name}}, more jobs near you`) without exposing the profile to
+without any release using the `REMOTE_CONFIG_JSON` env var. The banner
+(`src/banner.tsx`) is the first consumer: title, body, CTA, icon, tone, surface
+(customer home, pro home, bookings, records), schedule window and action can
+change server-side. Banners are permanent surfaces (no dismiss control) and
+animate in with a short rise plus a gentle icon breathe and CTA-arrow nudge;
+the artwork itself stays still. Copy and art use separate columns - copy never sits on top of
+the image - so titles and body text cannot overlap the illustration.
+The artwork is bundled (`assets/banners/{customer,pro,bookings,records}.png`,
+800x1280 transparent portrait) and rendered with `Image` in its own right-hand
+column, so images work offline and in Expo Go. A bundled per-surface banner is
+the fallback if the remote config is empty. Copy can use
+`{{name}}` (e.g. `Hi {{name}}, what do you need help with?`) without exposing the profile to
 the config server. Remote data is treated as untrusted: only internal
 routes and `http(s)` links are allowed, text is length-capped, and unknown
 fields/tones/audiences are dropped.

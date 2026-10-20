@@ -1,5 +1,6 @@
 import { Redirect, useRouter } from 'expo-router';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { HomeBanner } from '../src/banner';
 import { useMarketplace } from '../src/marketplace';
 import { BottomNav, HomeHeader, useTabBarSpace } from '../src/navigation';
 import { useEvents } from '../src/store/events';
@@ -16,6 +17,7 @@ export default function Records() {
   return (
     <View style={s.page}>
       <HomeHeader left={<Text style={type.title}>Records</Text>} />
+      <View style={s.bannerWrap}><HomeBanner role="records" /></View>
       <FlatList
         data={events}
         keyExtractor={e => e.id}
@@ -51,6 +53,7 @@ export default function Records() {
 
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: C.white },
+  bannerWrap: { paddingHorizontal: 20, marginBottom: 16 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: C.line },
   icon: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }
 });

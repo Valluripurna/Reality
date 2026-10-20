@@ -67,9 +67,9 @@ export default function Home() {
         left={
           <Pressable testID="location-picker" onPress={() => setLocationOpen(true)} accessibilityRole="button" accessibilityLabel="Change service address" hitSlop={6}>
             <View style={s.locRow}>
-              <Icon name="location" size={16} color={C.ink} />
+              <Icon name="location" size={14} color={C.ink} />
               <Text style={type.bodyStrong} numberOfLines={1}>{place}</Text>
-              <Icon name="chevron-down" size={16} color={C.ink} />
+              <Icon name="chevron-down" size={14} color={C.ink} />
             </View>
             <Text style={[type.caption, { marginLeft: 20 }]} numberOfLines={1}>{placeSub}</Text>
           </Pressable>
@@ -79,11 +79,8 @@ export default function Home() {
       <ScrollView contentContainerStyle={[s.content, { paddingBottom: bottomSpace }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <HomeBanner role="customer" name={firstName} onAssistant={() => setAssistantOpen(true)} />
 
-        <Text style={[type.small, { marginTop: 24 }]}>Hi {firstName}</Text>
-        <Text style={[type.display, { marginTop: 2 }]}>What do you need{'\n'}help with?</Text>
-
         <View style={s.search}>
-          <Icon name="search" size={18} color={C.muted} />
+          <Icon name="search" size={16} color={C.muted} />
           <TextInput
             testID="home-search"
             value={search}
@@ -96,7 +93,7 @@ export default function Home() {
           />
           {search.length > 0 && (
             <Pressable onPress={submitSearch} accessibilityRole="button" accessibilityLabel="Search" style={s.searchGo}>
-              <Icon name="arrow-forward" size={18} color={C.white} />
+              <Icon name="arrow-forward" size={16} color={C.white} />
             </Pressable>
           )}
         </View>
@@ -113,20 +110,11 @@ export default function Home() {
               accessibilityLabel={`${item.kind}, from ${rupee(startingPrice(item.kind))}`}
               style={({ pressed }) => [s.tile, pressed && { opacity: 0.6 }]}
             >
-              <View style={s.tileIcon}><Icon name={item.icon as IconName} size={22} color={C.ink} /></View>
+              <View style={s.tileIcon}><Icon name={item.icon as IconName} size={18} color={C.ink} /></View>
               <Text style={s.tileLabel} numberOfLines={2}>{item.kind}</Text>
             </Pressable>
           ))}
         </View>
-
-        <Card onPress={() => setAssistantOpen(true)} style={s.assistant} testID="assistant-card">
-          <View style={s.assistantIcon}><Icon name="chatbubbles-outline" size={20} color={C.white} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={type.bodyStrong}>Not sure what's wrong?</Text>
-            <Text style={type.small}>Describe it and get likely causes, parts and a fair price range.</Text>
-          </View>
-          <Icon name="chevron-forward" size={18} color={C.faint} />
-        </Card>
 
         <SectionHeader title="How it works" style={{ marginTop: 28 }} />
         <View style={s.steps}>
@@ -210,18 +198,18 @@ const s = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingTop: 8 },
   locRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   search: {
-    marginTop: 18,
-    height: 52,
+    marginTop: 16,
+    height: 48,
     borderRadius: radius.md,
     backgroundColor: C.surface,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 14,
-    paddingRight: 6,
-    gap: 10
+    paddingLeft: 12,
+    paddingRight: 5,
+    gap: 9
   },
   searchInput: { flex: 1, fontSize: 15, color: C.ink, height: '100%', outlineStyle: 'none' } as any,
-  searchGo: { width: 40, height: 40, borderRadius: 12, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
+  searchGo: { width: 36, height: 36, borderRadius: 11, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
   active: { marginTop: 16, backgroundColor: C.ink, borderRadius: radius.lg, padding: 16 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.brandBright },
   activeKicker: { color: 'rgba(255,255,255,0.65)', fontSize: 12, fontWeight: '600' },
@@ -229,12 +217,10 @@ const s = StyleSheet.create({
   activeSub: { color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 2 },
   progress: { flexDirection: 'row', gap: 4, marginTop: 14 },
   progressSeg: { flex: 1, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 24, marginHorizontal: -6, rowGap: 16 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 18, marginHorizontal: -6, rowGap: 14 },
   tile: { width: '25%', alignItems: 'center', paddingHorizontal: 6 },
-  tileIcon: { width: '100%', aspectRatio: 1, maxWidth: 76, borderRadius: radius.lg, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
-  tileLabel: { marginTop: 8, fontSize: 12, lineHeight: 15, fontWeight: '500', color: C.ink, textAlign: 'center' },
-  assistant: { marginTop: 28, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  assistantIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.brand, alignItems: 'center', justifyContent: 'center' },
+  tileIcon: { width: 46, height: 46, borderRadius: 8, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
+  tileLabel: { marginTop: 5, fontSize: 10.5, lineHeight: 13, fontWeight: '500', color: C.ink, textAlign: 'center' },
   steps: { flexDirection: 'row', gap: 10 },
   step: { flex: 1, backgroundColor: C.surface, borderRadius: radius.md, padding: 12, gap: 3 },
   stepNum: { fontSize: 20, fontWeight: '700', color: C.brand, marginBottom: 4 }

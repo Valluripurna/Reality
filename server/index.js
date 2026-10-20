@@ -22,31 +22,51 @@ const { randomInt } = require('crypto');
  * Override with REMOTE_CONFIG_JSON (a JSON string) without shipping a build.
  */
 const DEFAULT_REMOTE_CONFIG = {
-  version: 1,
+  version: 5,
   banners: [
     {
-      id: 'customer-spring-check',
+      id: 'customer-greeting-v2',
       enabled: true,
       audience: 'customer',
-      title: '{{name}}, not sure what the job should cost?',
-      body: 'Describe the problem for likely causes and a fair range.',
+      title: 'Hi {{name}}, what do you need help with?',
+      body: 'Describe the job. Compare fair quotes.',
       cta: 'Ask the assistant',
       icon: 'chatbubbles-outline',
       tone: 'brand',
       action: { type: 'assistant' },
-      dismissible: true
+      dismissible: false
     },
     {
-      id: 'pro-more-jobs',
+      id: 'pro-greeting-v2',
       enabled: true,
       audience: 'pro',
-      title: '{{name}}, more jobs near you',
-      body: 'Add services and go online to see matching requests first.',
+      title: 'Hi {{name}}, ready for your next job?',
+      body: 'Go online to see nearby jobs that fit your skills.',
       cta: 'Update services',
       icon: 'briefcase-outline',
-      tone: 'brand',
+      tone: 'dark',
       action: { type: 'route', href: '/profile' },
-      dismissible: true
+      dismissible: false
+    },
+    {
+      id: 'bookings-overview-v2',
+      enabled: true,
+      audience: 'bookings',
+      title: 'All your bookings',
+      body: 'Active jobs and past visits, in one place.',
+      icon: 'calendar-outline',
+      tone: 'amber',
+      dismissible: false
+    },
+    {
+      id: 'records-overview-v1',
+      enabled: true,
+      audience: 'records',
+      title: 'Every job, on the record',
+      body: 'Quotes, photos and payments stay saved for later.',
+      icon: 'document-text-outline',
+      tone: 'dark',
+      dismissible: false
     }
   ]
 };

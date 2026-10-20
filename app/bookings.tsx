@@ -1,6 +1,7 @@
 import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { HomeBanner } from '../src/banner';
 import { formatWhen, stageText, stageTone } from '../src/format';
 import { phoneKey, useMarketplace } from '../src/marketplace';
 import { serviceCatalog } from '../src/matching';
@@ -33,6 +34,7 @@ export default function Bookings() {
   return (
     <View style={s.page}>
       <HomeHeader left={<Text style={type.title}>{isPro ? 'My work' : 'Bookings'}</Text>} />
+      <View style={s.bannerWrap}><HomeBanner role="bookings" /></View>
       <View style={s.segment}>
         {(['active', 'past'] as const).map(t => (
           <Pressable key={t} onPress={() => setTab(t)} accessibilityRole="tab" accessibilityState={{ selected: tab === t }} style={[s.segItem, tab === t && s.segOn]}>
@@ -94,6 +96,7 @@ function BookingCard({ job, isPro, onPress }: { job: ServiceJob; isPro: boolean;
 
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: C.white },
+  bannerWrap: { paddingHorizontal: 20, marginBottom: 16 },
   segment: { flexDirection: 'row', marginHorizontal: 20, marginBottom: 16, backgroundColor: C.surface, borderRadius: 12, padding: 4 },
   segItem: { flex: 1, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   segOn: { backgroundColor: C.white, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
