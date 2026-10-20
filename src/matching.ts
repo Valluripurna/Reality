@@ -1,13 +1,16 @@
+import { DEFAULT_COORDS, distanceKm, etaMinutes } from './location';
 import { ServiceKind, ProProfile } from './types';
 
 type Point = { lat: number; lng: number };
 type Provider = { name: string; skills: ServiceKind[]; point: Point; rating: number; phone?: string };
 
-const customer: Point = { lat: 12.9716, lng: 77.5946 };
+/** Only used when the customer's position is unknown. */
+const customer: Point = DEFAULT_COORDS;
 
 const baseLaborRates: Record<string, number> = {
   Plumbing: 199,
   Electrical: 249,
+  'AC repair': 349,
   'Appliance repair': 299,
   Cleaning: 149,
   Carpentry: 249,
@@ -20,9 +23,52 @@ const baseLaborRates: Record<string, number> = {
 };
 
 export const categories: ServiceKind[] = [
-  'Plumbing', 'Electrical', 'Appliance repair', 'Cleaning', 'Carpentry',
+  'Plumbing', 'Electrical', 'AC repair', 'Appliance repair', 'Cleaning', 'Carpentry',
   'Painting', 'Pest control', 'Beauty & wellness', 'Computer repair', 'Tutoring', 'Other'
 ];
+
+export type CatalogItem = { kind: ServiceKind; icon: string; blurb: string };
+
+/** Display metadata for each category. Icons are Ionicons glyph names. */
+export const serviceCatalog: CatalogItem[] = [
+  { kind: 'Plumbing', icon: 'water-outline', blurb: 'Leaks, taps, drains' },
+  { kind: 'Electrical', icon: 'flash-outline', blurb: 'Wiring, switches, MCB' },
+  { kind: 'AC repair', icon: 'snow-outline', blurb: 'Service, gas, cooling' },
+  { kind: 'Appliance repair', icon: 'tv-outline', blurb: 'Fridge, washer, oven' },
+  { kind: 'Cleaning', icon: 'sparkles-outline', blurb: 'Home, kitchen, bath' },
+  { kind: 'Carpentry', icon: 'hammer-outline', blurb: 'Doors, hinges, furniture' },
+  { kind: 'Painting', icon: 'color-palette-outline', blurb: 'Walls, touch-ups' },
+  { kind: 'Pest control', icon: 'bug-outline', blurb: 'Termites, roaches' },
+  { kind: 'Beauty & wellness', icon: 'cut-outline', blurb: 'Salon at home' },
+  { kind: 'Computer repair', icon: 'laptop-outline', blurb: 'Laptops, PCs, Wi-Fi' },
+  { kind: 'Tutoring', icon: 'school-outline', blurb: 'Home tuition' },
+  { kind: 'Other', icon: 'ellipsis-horizontal', blurb: 'Something else' }
+];
+
+export function startingPrice(kind: ServiceKind) {
+  return baseLaborRates[kind] ?? 199;
+}
+
+/**
+ * Resolves free text ("ac", "AC Repair", "electrician") to a known category,
+ * or returns null when nothing matches.
+ */
+export function resolveCategory(query?: string | null): ServiceKind | null {
+  const q = (query ?? '').trim().toLowerCase();
+  if (!q) return null;
+  const aliases: Record<string, ServiceKind> = {
+    ac: 'AC repair', 'air conditioner': 'AC repair', electrician: 'Electrical', plumber: 'Plumbing',
+    appliance: 'Appliance repair', carpenter: 'Carpentry', painter: 'Painting', pest: 'Pest control',
+    salon: 'Beauty & wellness', beauty: 'Beauty & wellness', laptop: 'Computer repair', tutor: 'Tutoring'
+  };
+  if (aliases[q]) return aliases[q];
+  const exact = categories.find(c => c.toLowerCase() === q);
+  if (exact) return exact;
+  const partial = categories.find(c => c.toLowerCase().includes(q) || q.includes(c.toLowerCase()));
+  if (partial) return partial;
+  const alias = Object.keys(aliases).find(a => q.includes(a));
+  return alias ? aliases[alias] : null;
+}
 
 export function addCategory(newCat: string) {
   const trimmed = newCat.trim();
@@ -96,52 +142,51 @@ export function analyzeIssueImage(imageUri?: string) {
   }
 }
 
-const km = (a: Point, b: Point) => {
-  const r = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * r;
-  const dLng = (b.lng - a.lng) * r;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-};
+/** Assumed travel distance when we don't know where any suitable pro is. */
+export const ASSUMED_DISTANCE_KM = 3;
 
-export function matchService(kind: ServiceKind, urgency: 'Standard' | 'Urgent', imageUri?: string, registeredPros: ProProfile[] = []) {
+/**
+ * Typical price and the nearest suitable pro.
+ *
+ * Distance is measured from the customer's real position to pros who (a) offer
+ * this service, (b) are online with a known location and (c) are within their
+ * own service radius. With no such pro we assume a typical city distance
+ * rather than measuring to an arbitrary point.
+ */
+export function matchService(
+  kind: ServiceKind,
+  urgency: 'Standard' | 'Urgent',
+  imageUri?: string,
+  registeredPros: ProProfile[] = [],
+  customerPoint?: Point | null
+) {
   const baseLabor = baseLaborRates[kind] ?? 199;
   const aiAnalysis = analyzeIssueImage(imageUri);
+  const here = customerPoint ?? customer;
+  const k = kind.toLowerCase();
 
-  const activeProviders: Provider[] = registeredPros.map(p => {
-    const skillsList = typeof p.skills === 'string'
-      ? (p.skills.split(',').map(s => s.trim()) as ServiceKind[])
-      : (p.skills ?? ['Other']);
-    return {
-      name: p.name,
-      skills: skillsList,
-      point: { lat: p.liveLat ?? 12.9716, lng: p.liveLng ?? 77.5946 },
-      rating: p.ratingScore ?? 4.9,
-      phone: p.phone
-    };
-  });
+  const candidates = registeredPros
+    .filter(p => p.isOnline !== false && typeof p.liveLat === 'number' && typeof p.liveLng === 'number')
+    .map(p => {
+      const skills = (typeof p.skills === 'string' ? p.skills.split(',') : []).map(s => s.trim()).filter(Boolean) as ServiceKind[];
+      const point = { lat: p.liveLat!, lng: p.liveLng! };
+      return { name: p.name, skills, point, rating: p.ratingScore ?? 4.5, phone: p.phone, radius: p.serviceRadiusKm ?? 10, distanceKm: distanceKm(here, point) };
+    })
+    .filter(p => kind === 'Other' || p.skills.some(s => s.toLowerCase() === k))
+    .filter(p => p.distanceKm <= p.radius)
+    .sort((a, b) => a.distanceKm - b.distanceKm);
 
-  const candidates = activeProviders
-    .filter(p => p.skills.includes(kind) || kind === 'Other' || !activeProviders.some(pr => pr.skills.includes(kind)))
-    .map(p => ({ ...p, distanceKm: km(customer, p.point) }))
-    .sort((a, b) => (a.distanceKm / a.rating) - (b.distanceKm / b.rating));
-
-  const fallbackPro: Provider = {
-    name: 'Nearby Verified Service Pro',
-    skills: [kind],
-    point: { lat: 12.9791, lng: 77.6020 },
-    rating: 4.9
-  };
-
-  const pro = candidates[0] ?? activeProviders[0] ?? fallbackPro;
-  const distanceKm = Math.max(0.7, Number((pro.distanceKm ?? 1.2).toFixed(1)));
-  const travelTimeMins = Math.ceil(distanceKm * 3 + 8);
+  const nearest = candidates[0];
+  const pro: Provider & { distanceKm?: number } = nearest ?? { name: 'Nearby pro', skills: [kind], point: here, rating: 0 };
+  const distance = Math.max(0.5, Number((nearest?.distanceKm ?? ASSUMED_DISTANCE_KM).toFixed(1)));
+  const travelTimeMins = etaMinutes(distance);
+  const distanceKmValue = distance;
 
   // Realistic Pricing Algorithm:
   // AI Labor Fee + AI Parts Fee + Distance Fee (₹10/km) + Time Fee (₹2/min) + Urgency Fee
   const aiLaborCost = Math.max(baseLabor, aiAnalysis.aiLaborCost);
   const aiPartsCost = aiAnalysis.aiPartsCost;
-  const distanceFee = Math.round(distanceKm * 10);
+  const distanceFee = Math.round(distanceKmValue * 10);
   const timeFee = Math.round(aiAnalysis.estDurationMins * 2);
   const surgeCharge = urgency === 'Urgent' ? 150 : 0;
 
@@ -149,7 +194,9 @@ export function matchService(kind: ServiceKind, urgency: 'Standard' | 'Urgent', 
 
   return {
     pro,
-    distanceKm,
+    distanceKm: distanceKmValue,
+    /** Online pros offering this service within range of the customer. */
+    nearbyPros: candidates.length,
     eta: `${travelTimeMins} min`,
     estimate,
     basePrice: baseLabor,
@@ -161,7 +208,7 @@ export function matchService(kind: ServiceKind, urgency: 'Standard' | 'Urgent', 
     complexityMultiplier: aiAnalysis.complexityMultiplier,
     workDurationEst: aiAnalysis.durationEst,
     complexityLabel: aiAnalysis.complexityLabel,
-    route: [customer, pro.point]
+    route: [here, pro.point]
   };
 }
 

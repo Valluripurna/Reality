@@ -32,6 +32,9 @@ jobs:
       - name: Install Project Dependencies
         run: npm ci
 
+      - name: Typecheck and run tests
+        run: npm run test:all
+
       - name: Generate Native Android Code
         run: npx expo prebuild --platform android --clean
 

@@ -1,372 +1,165 @@
-import * as ImagePicker from 'expo-image-picker';
-import React, { useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { GrokAIEngine } from './ai';
-import { useToast } from './toast';
-import { Button, C, Icon } from './ui';
+import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AssistantAction, AssistantContext, assistantReply, ChatTurn } from './ai';
+import { useMarketplace } from './marketplace';
+import { Button, C, Chip, Icon, IconButton, radius, type } from './ui';
 
-type MessageItem = {
-  id: string;
-  sender: 'user' | 'ai';
-  text: string;
-  imageUri?: string;
-  timestamp: string;
+type Message = { id: string; from: 'user' | 'bot'; text: string; actions?: AssistantAction[]; suggestions?: string[] };
+
+const WELCOME: Message = {
+  id: 'hello',
+  from: 'bot',
+  text: "Describe the problem in a sentence and I'll tell you the likely cause, what you can safely try, and a fair price range.",
+  suggestions: ['Tap keeps dripping', 'MCB keeps tripping', 'AC not cooling', 'How does this app work?']
 };
 
-type AIChatModalProps = {
-  visible: boolean;
-  onClose: () => void;
-};
+/** Renders **bold** spans; everything else as plain text. */
+function Rich({ text, color }: { text: string; color: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return (
+    <Text style={[type.body, { color }]}>
+      {parts.map((p, i) => (p.startsWith('**') && p.endsWith('**')
+        ? <Text key={i} style={{ fontWeight: '700' }}>{p.slice(2, -2)}</Text>
+        : <Text key={i}>{p}</Text>))}
+    </Text>
+  );
+}
 
-export function AIChatModal({ visible, onClose }: AIChatModalProps) {
-  const toast = useToast();
-  const scrollRef = React.useRef<ScrollView>(null);
-  const [messages, setMessages] = useState<MessageItem[]>([
-    {
-      id: '1',
-      sender: 'ai',
-      text: 'Hello! I am your AI Chat Assistant. Describe your repair problem or upload an issue photo for an instant diagnosis, tool list & fair cost estimate!',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ]);
-  const [inputText, setInputText] = useState('');
-  const [attachedImage, setAttachedImage] = useState<string | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
+function Bubble({ m, children }: { m: Message; children: React.ReactNode }) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(v, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [v]);
+  return (
+    <Animated.View style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }], alignSelf: m.from === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
+      {children}
+    </Animated.View>
+  );
+}
 
-  React.useEffect(() => {
-    if (visible) {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-    }
-  }, [visible, messages, loading]);
+export function AIChatModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { profile } = useMarketplace();
+  const scroll = useRef<ScrollView>(null);
+  const [messages, setMessages] = useState<Message[]>([WELCOME]);
+  const [input, setInput] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const context = useRef<AssistantContext>({});
 
-  const handlePickImage = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.7
-    });
+  useEffect(() => {
+    const t = setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 80);
+    return () => clearTimeout(t);
+  }, [messages, thinking]);
 
-    if (!res.canceled && res.assets[0]?.uri) {
-      setAttachedImage(res.assets[0].uri);
-      toast.show('Issue photo attached to AI chat query', 'info');
-    }
-  };
-
-  const handleSend = async () => {
-    if (!inputText.trim() && !attachedImage) return;
-
-    const userMsgText = inputText.trim() || 'Uploaded issue photo for AI analysis';
-    const newMsg: MessageItem = {
-      id: Date.now().toString(),
-      sender: 'user',
-      text: userMsgText,
-      imageUri: attachedImage,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setMessages(prev => [...prev, newMsg]);
-    setInputText('');
-    const currentImg = attachedImage;
-    setAttachedImage(undefined);
-    setLoading(true);
-
+  const send = async (raw?: string) => {
+    const text = (raw ?? input).trim();
+    if (!text || thinking) return;
+    setInput('');
+    const history: ChatTurn[] = messages.filter(m => m.id !== 'hello').map(m => ({ from: m.from, text: m.text }));
+    setMessages(m => [...m, { id: `${Date.now()}`, from: 'user', text }]);
+    setThinking(true);
     try {
-      let fullResponse = '';
-      if (currentImg) {
-        const analysis = await GrokAIEngine.analyzeIssue(userMsgText, currentImg);
-        fullResponse = `🔍 **AI Issue Diagnosis**: ${analysis.diagnosis}\n\n🛠️ **Recommended Tools & Parts**:\n• ${analysis.recommendedParts.join('\n• ')}\n\n⏱️ **Est. Repair Duration**: ${analysis.estimatedLaborMins} mins (Confidence: ${analysis.confidenceScore}%)\n\n${analysis.safetyWarning || '⚠️ Exercise standard electrical and physical safety precautions.'}`;
-      } else {
-        fullResponse = await GrokAIEngine.chatResponse(userMsgText);
-      }
-
-      setLoading(false);
-
-      // Typewriter Streaming Animation
-      const words = fullResponse.split(' ');
-      const aiMsgId = (Date.now() + 1).toString();
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      // Insert empty AI message
-      setMessages(prev => [...prev, { id: aiMsgId, sender: 'ai', text: '▋', timestamp: timeStr }]);
-
-      let currentWords = '';
-      for (let i = 0; i < words.length; i++) {
-        currentWords += (i === 0 ? '' : ' ') + words[i];
-        const isLast = i === words.length - 1;
-        const textToDisplay = currentWords + (isLast ? '' : ' ▋');
-
-        setMessages(prev => prev.map(m => (m.id === aiMsgId ? { ...m, text: textToDisplay } : m)));
-        scrollRef.current?.scrollToEnd({ animated: true });
-        await new Promise(r => setTimeout(r, 22));
-      }
-    } catch (err) {
-      toast.show('Error connecting to AI Chat Assistant', 'warning');
-      setLoading(false);
+      const reply = await assistantReply(text, context.current, history);
+      // Remember what we're talking about so follow-ups ("how much?") stay on topic.
+      if (reply.topicId) context.current = { topicId: reply.topicId, kind: reply.kind };
+      else if (reply.kind) context.current = { kind: reply.kind };
+      setMessages(m => [...m, { id: `${Date.now()}-r`, from: 'bot', text: reply.text, actions: reply.actions, suggestions: reply.suggestions }]);
+    } catch {
+      setMessages(m => [...m, { id: `${Date.now()}-e`, from: 'bot', text: 'Sorry, something went wrong. Please try again.' }]);
+    } finally {
+      setThinking(false);
     }
   };
+
+  const book = (a: AssistantAction) => {
+    onClose();
+    router.push({ pathname: '/request', params: { category: a.category, ...(a.title ? { title: a.title } : {}) } });
+  };
+
+  const lastBot = [...messages].reverse().find(m => m.from === 'bot');
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={s.backdrop}>
-        <View style={s.sheet}>
-          {/* Header */}
-          <View style={s.header}>
-            <View style={s.headerLeft}>
-              <View style={s.aiBadgeIcon}>
-                <Icon name="sparkles" size={20} color={C.white} />
-              </View>
-              <View>
-                <Text style={s.title}>AI Chat Assistant</Text>
-                <Text style={s.sub}>Verified Repair & Service Helper</Text>
-              </View>
-            </View>
-
-            <Pressable onPress={onClose} style={s.closeBtn}>
-              <Icon name="close" size={20} color={C.navy} />
-            </Pressable>
+    <Modal visible={visible} animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : undefined} onRequestClose={onClose}>
+      <View style={[s.page, { paddingTop: Platform.OS === 'ios' ? 8 : insets.top }]}>
+        <View style={s.header}>
+          <View style={s.botIcon}><Icon name="chatbubbles" size={18} color={C.white} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={type.heading}>Service assistant</Text>
+            <Text style={type.caption}>General guidance — a pro confirms on site</Text>
           </View>
+          <IconButton icon="close" label="Close assistant" onPress={onClose} />
+        </View>
 
-          {/* Messages Scroll Area */}
-          <ScrollView ref={scrollRef} contentContainerStyle={s.msgScroll} showsVerticalScrollIndicator={false}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView ref={scroll} contentContainerStyle={s.list} keyboardShouldPersistTaps="handled">
             {messages.map(m => (
-              <View
-                key={m.id}
-                style={[
-                  s.msgBubble,
-                  m.sender === 'user' ? s.userMsgBubble : s.aiMsgBubble
-                ]}
-              >
-                {m.imageUri && (
-                  <Image source={{ uri: m.imageUri }} style={s.msgImagePreview} resizeMode="cover" />
-                )}
-                <Text style={[s.msgText, m.sender === 'user' ? s.userMsgText : s.aiMsgText]}>
-                  {m.text}
-                </Text>
-                <Text style={[s.timeText, m.sender === 'user' ? s.userTimeText : s.aiTimeText]}>
-                  {m.timestamp}
-                </Text>
-              </View>
+              <Bubble key={m.id} m={m}>
+                <View style={[s.bubble, m.from === 'user' ? s.user : s.bot]}>
+                  <Rich text={m.text} color={m.from === 'user' ? C.white : C.ink} />
+                </View>
+                {m.from === 'bot' && m.actions?.length && profile?.role !== 'pro' ? (
+                  <View style={{ marginTop: 8, flexDirection: 'row', gap: 8 }}>
+                    {m.actions.map(a => (
+                      <Button key={a.label} testID="assistant-book" label={a.label} icon="arrow-forward" variant="brand" size="md" onPress={() => book(a)} />
+                    ))}
+                  </View>
+                ) : null}
+              </Bubble>
             ))}
-
-            {loading && (
-              <View style={s.aiThinkingBubble}>
-                <Icon name="sparkles" size={16} color={C.indigo} />
-                <Text style={s.aiThinkingText}>AI Assistant is analyzing query...</Text>
+            {thinking && (
+              <View style={[s.bubble, s.bot, { flexDirection: 'row', gap: 8, alignItems: 'center', alignSelf: 'flex-start' }]}>
+                <ActivityIndicator size="small" color={C.muted} />
+                <Text style={type.small}>Thinking…</Text>
               </View>
             )}
+            {!thinking && lastBot?.suggestions?.length ? (
+              <View style={s.suggestions}>
+                {lastBot.suggestions.map(q => <Chip key={q} label={q} onPress={() => send(q)} />)}
+              </View>
+            ) : null}
           </ScrollView>
 
-          {/* Attached Image Bar */}
-          {attachedImage && (
-            <View style={s.attachBar}>
-              <Image source={{ uri: attachedImage }} style={s.attachThumb} />
-              <Text style={s.attachText}>Photo attached</Text>
-              <Pressable onPress={() => setAttachedImage(undefined)}>
-                <Icon name="close-circle" size={18} color={C.crimson} />
-              </Pressable>
-            </View>
-          )}
-
-          {/* Input Box */}
-          <View style={s.inputRow}>
-            <Pressable onPress={handlePickImage} style={s.cameraBtn}>
-              <Icon name="camera" size={20} color={C.green} />
-            </Pressable>
-
+          <View style={[s.composer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
             <TextInput
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder="Ask a question or describe issue..."
-              placeholderTextColor="#94A3B8"
+              testID="assistant-input"
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={() => send()}
+              placeholder="Describe the problem…"
+              placeholderTextColor={C.faint}
+              returnKeyType="send"
               style={s.input}
-              onSubmitEditing={handleSend}
             />
-
-            <Pressable onPress={handleSend} style={s.sendBtn}>
-              <Icon name="send" size={18} color={C.white} />
+            <Pressable
+              testID="assistant-send"
+              onPress={() => send()}
+              disabled={!input.trim() || thinking}
+              accessibilityRole="button"
+              accessibilityLabel="Send"
+              style={[s.send, (!input.trim() || thinking) && { backgroundColor: C.surface2 }]}
+            >
+              <Icon name="arrow-up" size={20} color={C.white} />
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
 }
 
 const s = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    justifyContent: 'flex-end'
-  },
-  sheet: {
-    height: '82%',
-    backgroundColor: C.paper,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 18,
-    gap: 12
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderColor: C.line
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10
-  },
-  aiBadgeIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    backgroundColor: C.indigo,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  title: {
-    color: C.navy,
-    fontWeight: '900',
-    fontSize: 17
-  },
-  sub: {
-    color: C.muted,
-    fontSize: 11
-  },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: C.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: C.line
-  },
-  msgScroll: {
-    gap: 12,
-    paddingVertical: 10
-  },
-  msgBubble: {
-    maxWidth: '82%',
-    padding: 13,
-    borderRadius: 18,
-    gap: 4
-  },
-  userMsgBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: C.green,
-    borderBottomRightRadius: 4
-  },
-  aiMsgBubble: {
-    alignSelf: 'flex-start',
-    backgroundColor: C.white,
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: C.line
-  },
-  msgImagePreview: {
-    width: 180,
-    height: 120,
-    borderRadius: 12,
-    marginBottom: 4
-  },
-  msgText: {
-    fontSize: 13,
-    lineHeight: 18
-  },
-  userMsgText: {
-    color: C.white,
-    fontWeight: '700'
-  },
-  aiMsgText: {
-    color: C.navy,
-    fontWeight: '600'
-  },
-  timeText: {
-    fontSize: 9,
-    alignSelf: 'flex-end',
-    marginTop: 2
-  },
-  userTimeText: {
-    color: 'rgba(255, 255, 255, 0.7)'
-  },
-  aiTimeText: {
-    color: C.muted
-  },
-  aiThinkingBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#EEF2FF',
-    padding: 10,
-    borderRadius: 14,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#C7D2FE'
-  },
-  aiThinkingText: {
-    color: C.indigo,
-    fontWeight: '700',
-    fontSize: 12
-  },
-  attachBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: C.white,
-    padding: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.line
-  },
-  attachThumb: {
-    width: 32,
-    height: 32,
-    borderRadius: 8
-  },
-  attachText: {
-    flex: 1,
-    color: C.navy,
-    fontSize: 12,
-    fontWeight: '700'
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  cameraBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: C.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: C.line
-  },
-  input: {
-    flex: 1,
-    height: 48,
-    backgroundColor: C.white,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: C.line,
-    paddingHorizontal: 14,
-    color: C.navy,
-    fontWeight: '700',
-    fontSize: 14,
-    outlineStyle: 'none' as any
-  },
-  sendBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: C.green,
-    alignItems: 'center',
-    justifyContent: 'center'
-  }
+  page: { flex: 1, backgroundColor: C.white },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line },
+  botIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.brand, alignItems: 'center', justifyContent: 'center' },
+  list: { padding: 16, gap: 12 },
+  bubble: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
+  user: { backgroundColor: C.ink, borderBottomRightRadius: 6 },
+  bot: { backgroundColor: C.surface, borderBottomLeftRadius: 6 },
+  suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
+  composer: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line },
+  input: { flex: 1, height: 46, borderRadius: radius.pill, backgroundColor: C.surface, paddingHorizontal: 18, fontSize: 15, color: C.ink, outlineStyle: 'none' } as any,
+  send: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }
 });

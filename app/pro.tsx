@@ -1,312 +1,209 @@
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, Image, Pressable, SafeAreaView, StyleSheet, Switch, Text, View } from 'react-native';
-import { BrandLockup } from '../src/brand';
-import { useMarketplace } from '../src/marketplace';
-import { BottomNav, TopHeaderBar } from '../src/navigation';
+import { FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { HomeBanner } from '../src/banner';
+import { formatWhen } from '../src/format';
+import { distanceKm } from '../src/location';
+import { phoneKey, useMarketplace } from '../src/marketplace';
+import { serviceCatalog } from '../src/matching';
+import { BottomNav, HomeHeader, useTabBarSpace } from '../src/navigation';
+import { PassSheet } from '../src/pass-sheet';
 import { useToast } from '../src/toast';
-import { C, Icon } from '../src/ui';
+import { isActiveStage, ServiceJob } from '../src/types';
+import { Badge, C, Card, EmptyState, Icon, IconName, radius, rupee, type } from '../src/ui';
 
-import { AIChatModal } from '../src/ai-chat';
+function skillMatches(job: ServiceJob, skills: string[]) {
+  if (!skills.length) return true;
+  const kind = (job.kind || '').toLowerCase();
+  return skills.some(sk => kind.includes(sk) || sk.includes(kind));
+}
 
 export default function ProHome() {
-  const { jobs, profile, toggleProOnline, syncGlobalJobs, acceptJob, submitProBid, setProfile } = useMarketplace();
   const router = useRouter();
   const toast = useToast();
-  const prevCountRef = useRef(jobs.length);
-  const [aiChatModalOpen, setAiChatModalOpen] = useState(false);
+  const bottomSpace = useTabBarSpace();
+  const { profile, jobs, toggleProOnline, syncGlobalJobs } = useMarketplace();
+  const [passOpen, setPassOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const known = useRef<Set<string> | null>(null);
 
-  const proProfile = profile?.role === 'pro' ? profile : null;
-  const isOnline = proProfile?.isOnline ?? true;
+  const pro = profile?.role === 'pro' ? profile : null;
+  const online = pro?.isOnline ?? false;
 
-  // Immediate Sync + Hidden Silent 10-Second Auto-Refresh Loop
+  // Poll for new requests and nudge when one arrives.
   useEffect(() => {
-    syncGlobalJobs();
-
-    const interval = setInterval(async () => {
-      const latest = await syncGlobalJobs();
-      if (latest.length > prevCountRef.current) {
-        const newest = latest[0];
-        if (newest && newest.stage === 'Matching') {
-          toast.show(`⚡ New Service Request: ${newest.kind} (₹${newest.estimate})!`, 'success');
-        }
+    if (!pro) return;
+    const tick = async () => {
+      const latest = await syncGlobalJobs().catch(() => null);
+      if (!latest) return;
+      const open = latest.filter(j => j.stage === 'Matching');
+      if (known.current) {
+        const fresh = open.find(j => !known.current!.has(j.id) && phoneKey(j.customerPhone) !== phoneKey(pro.phone));
+        if (fresh && pro.isOnline) toast.show(`New request: ${fresh.kind} · ${fresh.title}`, 'info');
       }
-      prevCountRef.current = latest.length;
-    }, 10000);
+      known.current = new Set(open.map(j => j.id));
+    };
+    tick();
+    const t = setInterval(tick, 10000);
+    return () => clearInterval(t);
+  }, [pro?.phone, pro?.isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return () => clearInterval(interval);
-  }, []);
+  if (!profile) return <Redirect href="/welcome" />;
+  if (!pro) return <Redirect href="/" />;
 
-  const completedJobs = jobs.filter(j => j.stage === 'Completed');
-  
-  // Category Skills Matching Engine
-  const proSkillsList = proProfile?.skills
-    ? proProfile.skills.toLowerCase().split(',').map(s => s.trim())
-    : ['plumbing', 'electrical', 'cleaning', 'carpentry', 'other'];
+  const me = phoneKey(pro.phone);
+  const here = pro.liveLat != null && pro.liveLng != null ? { lat: pro.liveLat, lng: pro.liveLng } : null;
+  const skills = (pro.skills || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+  const open = jobs.filter(j => j.stage === 'Matching');
+  const matched = open.filter(j => skillMatches(j, skills));
+  const feed = showAll ? open : matched;
+  const myActive = jobs.filter(j => phoneKey(j.proPhone) === me && isActiveStage(j.stage));
+  const myDone = jobs.filter(j => phoneKey(j.proPhone) === me && j.stage === 'Completed');
+  const today = new Date().toDateString();
+  const earnedToday = myDone
+    .filter(j => j.completedWorkAt && new Date(j.completedWorkAt).toDateString() === today)
+    .reduce((sum, j) => sum + j.estimate - Math.round(j.estimate * 0.1), 0);
+  const passActive = pro.subscriptionActive && pro.passExpiresAt && new Date(pro.passExpiresAt).getTime() > Date.now();
 
-  const matchedJobs = jobs.filter(j => {
-    if (j.stage === 'Completed') return false;
-    const jobKindLower = (j.kind || j.title || '').toLowerCase();
-    return proSkillsList.some(skill => jobKindLower.includes(skill) || skill.includes(jobKindLower)) || proSkillsList.includes('other');
-  });
+  const header = (
+    <View style={{ gap: 12, marginBottom: 8 }}>
+      <HomeBanner role="pro" name={pro.name.split(' ')[0]} />
 
-  const openJobs = matchedJobs.length > 0 ? matchedJobs : jobs.filter(j => j.stage !== 'Completed');
-  const todayEarnings = completedJobs.reduce((acc, j) => acc + Math.round(j.estimate * 0.9), 0);
-  const potentialEarnings = openJobs.reduce((acc, j) => acc + Math.round(j.estimate * 0.9), 0);
-
-  return (
-    <SafeAreaView style={s.page}>
-      <TopHeaderBar />
-
-      <View style={s.statusBanner}>
+      <View style={[s.online, online && s.onlineOn]}>
+        <View style={[s.dot, { backgroundColor: online ? C.brandBright : C.faint }]} />
         <View style={{ flex: 1 }}>
-          <View style={s.statusHeaderRow}>
-            <View style={[s.dot, !isOnline && s.dotOffline]} />
-            <Text style={s.statusTitle}>{isOnline ? 'You are ONLINE' : 'You are OFFLINE'}</Text>
-          </View>
-          <Text style={s.statusSub}>
-            {isOnline ? 'Ready to accept nearby service requests' : 'Go online to view live customer requests'}
+          <Text style={[type.bodyStrong, online && { color: C.white }]}>{online ? "You're online" : "You're offline"}</Text>
+          <Text style={[type.small, online && { color: 'rgba(255,255,255,0.65)' }]}>
+            {online ? 'Customers nearby can see you' : 'Go online to receive requests'}
           </Text>
         </View>
         <Switch
-          value={isOnline}
-          onValueChange={v => {
-            toggleProOnline(v);
-            toast.show(v ? 'Online mode active' : 'Went offline', v ? 'success' : 'warning');
-          }}
-          trackColor={{ false: '#D0D5D2', true: C.mint }}
-          thumbColor={isOnline ? C.green : '#8C9692'}
+          testID="online-toggle"
+          value={online}
+          onValueChange={v => { toggleProOnline(v); toast.show(v ? "You're online" : "You're offline", v ? 'success' : 'info'); }}
+          trackColor={{ false: C.lineStrong, true: C.brand }}
+          thumbColor={C.white}
         />
       </View>
 
-      <View style={{ marginTop: 20 }}>
-        <Text style={s.title}>Nearby Service Jobs ({openJobs.length})</Text>
-        <Text style={s.sub}>Matched to skills: {proProfile?.skills || 'General Service'}</Text>
+      <View style={s.stats}>
+        <Stat label="Earned today" value={rupee(earnedToday)} />
+        <Stat label="Jobs done" value={String(pro.completedJobsCount ?? myDone.length)} />
+        <Stat label="Rating" value={pro.ratingScore ? `★ ${pro.ratingScore.toFixed(1)}` : 'New'} />
       </View>
 
-      <View style={s.earnings}>
-        <Icon name="wallet" color={C.white} size={24} />
-        <View style={{ flex: 1 }}>
-          <Text style={s.earningsSmall}>TODAY’S NET PAYOUT ({completedJobs.length} Jobs)</Text>
-          <Text style={s.earningsBig}>₹{todayEarnings} <Text style={{ fontSize: 13, color: '#A7F3D0', fontWeight: '600' }}>(Potential: ₹{potentialEarnings})</Text></Text>
-        </View>
-        <View style={s.proLevelPill}>
-          <Text style={s.proLevelText}>{proProfile?.proLevel || 'Gold Pro'}</Text>
-        </View>
+      {myActive.map(j => (
+        <Pressable key={j.id} onPress={() => router.push(`/job/${j.id}` as any)} style={({ pressed }) => [s.activeJob, pressed && { opacity: 0.9 }]} accessibilityRole="button">
+          <Icon name="navigate" size={20} color={C.white} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: C.white, fontWeight: '600', fontSize: 15 }} numberOfLines={1}>{j.title}</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>{j.stage} · {j.customerName ?? 'Customer'}</Text>
+          </View>
+          <Icon name="chevron-forward" size={18} color={C.white} />
+        </Pressable>
+      ))}
+
+      {!passActive && (
+        <Pressable onPress={() => setPassOpen(true)} accessibilityRole="button" style={({ pressed }) => [s.claims, pressed && { opacity: 0.85 }]}>
+          <Icon name="ticket-outline" size={18} color={C.amberDark} />
+          <Text style={[type.small, { flex: 1, color: C.amberDark }]}>
+            <Text style={{ fontWeight: '700' }}>{pro.freeAcceptsRemaining ?? 0} free quotes left.</Text> Get a pass for unlimited.
+          </Text>
+          <Icon name="chevron-forward" size={16} color={C.amberDark} />
+        </Pressable>
+      )}
+
+      {skills.length === 0 && (
+        <Card onPress={() => router.replace('/profile')} style={s.rowCenter}>
+          <Icon name="construct-outline" size={20} color={C.ink} />
+          <Text style={[type.small, { flex: 1, color: C.ink }]}>Add the services you offer so we can show you the right jobs.</Text>
+          <Icon name="chevron-forward" size={18} color={C.faint} />
+        </Card>
+      )}
+
+      <View style={[s.rowCenter, { marginTop: 12 }]}>
+        <Text style={[type.heading, { flex: 1 }]}>New requests</Text>
+        {skills.length > 0 && open.length !== matched.length && (
+          <Pressable onPress={() => setShowAll(v => !v)} hitSlop={8}>
+            <Text style={{ color: C.brand, fontWeight: '600', fontSize: 14 }}>{showAll ? 'My skills only' : `Show all (${open.length})`}</Text>
+          </Pressable>
+        )}
       </View>
+    </View>
+  );
 
-      {/* AI Assistant Quick Assistance Card for Service Pros */}
-      <Pressable onPress={() => setAiChatModalOpen(true)} style={s.aiChatBtn}>
-        <View style={s.aiChatIconBg}>
-          <Icon name="sparkles" color={C.green} size={20} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.aiChatTitle}>AI Chat Assistant</Text>
-          <Text style={s.aiChatSub}>Ask app guidance, earnings tips & service troubleshooting</Text>
-        </View>
-        <View style={s.aiChatBadge}>
-          <Text style={s.aiChatBadgeText}>CHAT NOW</Text>
-        </View>
-      </Pressable>
+  return (
+    <View style={s.page}>
+      <HomeHeader showSOS left={<Text style={type.title}>Hi, {pro.name.split(' ')[0]}</Text>} />
+      <FlatList
+        data={online ? feed : []}
+        keyExtractor={j => j.id}
+        ListHeaderComponent={header}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: bottomSpace }}
+        ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+        renderItem={({ item }) => <RequestCard job={item} myPhone={me} from={here} onPress={() => router.push(`/job/${item.id}` as any)} />}
+        ListEmptyComponent={
+          online ? (
+            <EmptyState icon="radio-outline" title="No requests right now" body="New requests near you will show up here automatically." />
+          ) : (
+            <EmptyState icon="moon-outline" title="You're offline" body="Turn on the switch above to start receiving requests." />
+          )
+        }
+      />
+      <PassSheet visible={passOpen} onClose={() => setPassOpen(false)} />
+      <BottomNav />
+    </View>
+  );
+}
 
-      {/* Free Accepts Allocation Card */}
-      <View style={s.acceptsCard}>
-        <Icon name="sparkles" color={C.gold} size={18} />
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.stat}>
+      <Text style={type.heading}>{value}</Text>
+      <Text style={type.caption}>{label}</Text>
+    </View>
+  );
+}
+
+function RequestCard({ job, myPhone, from, onPress }: { job: ServiceJob; myPhone: string; from: { lat: number; lng: number } | null; onPress: () => void }) {
+  const icon = (serviceCatalog.find(c => c.kind === job.kind)?.icon ?? 'construct-outline') as IconName;
+  const mine = job.bids?.find(b => phoneKey(b.proPhone) === myPhone);
+  const others = (job.bids?.length ?? 0) - (mine ? 1 : 0);
+  return (
+    <Pressable testID={`request-${job.id}`} onPress={onPress} accessibilityRole="button" style={({ pressed }) => [s.card, pressed && { backgroundColor: C.surface }]}>
+      <View style={s.rowCenter}>
+        <View style={s.icon}><Icon name={icon} size={22} color={C.ink} /></View>
         <View style={{ flex: 1 }}>
-          <Text style={s.acceptsTitle}>Free Job Accepts Allocation</Text>
-          <Text style={s.acceptsSub}>
-            {proProfile?.subscriptionActive
-              ? `Active ${proProfile.passType} Pass · Unlimited Accepts`
-              : `${proProfile?.freeAcceptsRemaining ?? 50} free accepts remaining`}
+          <Text style={type.bodyStrong} numberOfLines={1}>{job.title}</Text>
+          <Text style={type.small} numberOfLines={1}>
+            {job.kind} · {from && job.lat != null && job.lng != null ? `${distanceKm(from, { lat: job.lat, lng: job.lng }).toFixed(1)} km away` : 'distance unknown'} · {formatWhen(job.createdAt)}
           </Text>
         </View>
-        <Pressable onPress={() => router.push('/profile')} style={s.passLinkBtn}>
-          <Text style={s.passLinkText}>Pass Info</Text>
-        </Pressable>
+        {job.urgency === 'Urgent' ? <Badge label="Urgent" tone="danger" /> : null}
       </View>
-
-      <FlatList
-        data={jobs}
-        keyExtractor={x => x.id}
-        contentContainerStyle={{ gap: 11, paddingTop: 18, paddingBottom: 130 }}
-        ListEmptyComponent={
-          <View style={s.emptyBox}>
-            <Icon name="compass" size={32} color={C.green} />
-            <Text style={s.emptyTitle}>Looking for nearby work...</Text>
-            <Text style={s.empty}>You're online. Customer requests in your service area will appear here in real-time.</Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <View style={[s.card, item.stage === 'Matching' && { borderColor: C.green, borderWidth: 2, backgroundColor: '#F0FDF4' }]}>
-            <Pressable onPress={() => router.push(`/job/${item.id}` as any)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-              <View style={[s.cardIcon, item.stage === 'Matching' && { backgroundColor: C.green }]}>
-                <Icon name="construct" color={item.stage === 'Matching' ? C.white : C.navy} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.cardTitle}>{item.title}</Text>
-                <Text style={s.cardMeta}>{item.kind} · {item.urgency} · {item.eta} away</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={s.price}>₹{item.estimate}</Text>
-                <Text style={[s.status, item.stage === 'Matching' && { color: C.green, fontWeight: '900' }]}>
-                  {item.stage === 'Matching' ? '⚡ INCOMING' : item.stage}
-                </Text>
-              </View>
-            </Pressable>
-
-            {item.stage === 'Matching' && (
-              <View style={{ marginTop: 12, gap: 8 }}>
-                <Pressable
-                  onPress={() => {
-                    const customQuote = prompt ? prompt('Enter your price quote (₹):', String(item.estimate)) : null;
-                    const amount = customQuote ? Number(customQuote) : item.estimate;
-                    if (amount > 0) {
-                      const ok = submitProBid(item.id, amount, 'Ready to perform service with genuine tools.');
-                      if (ok) {
-                        toast.show(`✓ Price Quote Bid of ₹${amount} submitted to customer!`, 'success');
-                        router.push(`/job/${item.id}` as any);
-                      }
-                    }
-                  }}
-                  style={{
-                    backgroundColor: C.gold,
-                    paddingVertical: 12,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    flexDirection: 'row',
-                    justifyContent: 'center',
-                    gap: 8
-                  }}
-                >
-                  <Icon name="pricetag" color={C.navy} size={18} />
-                  <Text style={{ color: C.navy, fontWeight: '900', fontSize: 14 }}>SUBMIT PRICE QUOTE (₹{item.lastBidAmount ?? item.estimate})</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => {
-                    const ok = acceptJob(item.id);
-                    if (ok) {
-                      toast.show(`✓ Accepted ${item.kind} service job! (₹${item.estimate})`, 'success');
-                      router.push(`/job/${item.id}` as any);
-                    } else {
-                      toast.show('Could not accept job. Request may be taken.', 'warning');
-                    }
-                  }}
-                  style={{
-                    backgroundColor: C.green,
-                    paddingVertical: 10,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    flexDirection: 'row',
-                    justifyContent: 'center',
-                    gap: 6
-                  }}
-                >
-                  <Icon name="checkmark" color={C.white} size={16} />
-                  <Text style={{ color: C.white, fontWeight: '900', fontSize: 13 }}>ACCEPT DIRECT FARE (₹{item.estimate})</Text>
-                </Pressable>
-              </View>
-            )}
-          </View>
-        )}
-      />
-
-      {/* Interactive AI Chat Assistant Modal */}
-      <AIChatModal visible={aiChatModalOpen} onClose={() => setAiChatModalOpen(false)} />
-
-      <BottomNav />
-    </SafeAreaView>
+      <View style={[s.rowCenter, { marginTop: 12 }]}>
+        <Text style={[type.small, { flex: 1 }]} numberOfLines={1}>
+          {job.budget
+            ? <>Budget <Text style={{ color: C.ink, fontWeight: '600' }}>{rupee(job.budget)}</Text></>
+            : 'No price set — quote your own'}
+          {others > 0 ? ` · ${others} other quote${others > 1 ? 's' : ''}` : ''}
+        </Text>
+        {mine ? <Badge label={`Quoted ${rupee(mine.bidAmount)}`} tone="brand" icon="checkmark" /> : <Badge label="Send quote" tone="dark" />}
+      </View>
+    </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  page: { flex: 1, backgroundColor: C.paper, paddingHorizontal: 18, paddingTop: 14 },
-  head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  avatarPress: { padding: 2 },
-  avatarBox: { width: 38, height: 38, borderRadius: 14, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' },
-  avatarImg: { width: 38, height: 38, borderRadius: 14 },
-  statusBanner: { backgroundColor: C.mint, borderRadius: 16, padding: 14, marginTop: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  statusHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.green },
-  dotOffline: { backgroundColor: '#8C9692' },
-  statusTitle: { color: C.ink, fontWeight: '900', fontSize: 14 },
-  statusSub: { color: C.muted, fontSize: 11, marginTop: 2 },
-  title: { color: C.ink, fontSize: 20, fontWeight: '900' },
-  sub: { color: C.muted, marginTop: 2, fontSize: 11 },
-  refreshBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#C7D2FE'
-  },
-  refreshBtnText: {
-    color: C.indigo,
-    fontWeight: '800',
-    fontSize: 11
-  },
-  earnings: { backgroundColor: C.green, borderRadius: 17, padding: 15, marginTop: 14, flexDirection: 'row', gap: 12, alignItems: 'center' },
-  earningsSmall: { color: '#B7E4CB', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
-  earningsBig: { color: C.white, fontSize: 22, fontWeight: '900', marginTop: 2 },
-  proLevelPill: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10 },
-  proLevelText: { color: C.white, fontWeight: '900', fontSize: 11 },
-  aiChatBtn: {
-    backgroundColor: C.white,
-    borderRadius: 16,
-    padding: 12,
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1.5,
-    borderColor: '#A7F3D0'
-  },
-  aiChatIconBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: C.mint,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  aiChatTitle: {
-    color: C.navy,
-    fontWeight: '900',
-    fontSize: 13
-  },
-  aiChatSub: {
-    color: C.muted,
-    fontSize: 10,
-    marginTop: 1
-  },
-  aiChatBadge: {
-    backgroundColor: C.green,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8
-  },
-  aiChatBadgeText: {
-    color: C.white,
-    fontWeight: '900',
-    fontSize: 10
-  },
-  acceptsCard: { backgroundColor: '#FFFBEB', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#FDE68A', flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
-  acceptsTitle: { color: C.navy, fontWeight: '900', fontSize: 13 },
-  acceptsSub: { color: '#B45309', fontSize: 11, marginTop: 2, fontWeight: '600' },
-  passLinkBtn: { backgroundColor: C.gold, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9 },
-  passLinkText: { color: C.navy, fontWeight: '900', fontSize: 11 },
-  card: { backgroundColor: C.white, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: C.line, flexDirection: 'row', gap: 11, alignItems: 'center' },
-  cardIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: C.mint, alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { color: C.ink, fontWeight: '900', fontSize: 15 },
-  cardMeta: { color: C.muted, fontSize: 12, marginTop: 4 },
-  price: { color: C.green, fontSize: 16, fontWeight: '900', textAlign: 'right' },
-  status: { color: C.muted, fontSize: 10, marginTop: 3, textAlign: 'right' },
-  emptyBox: { backgroundColor: C.white, borderRadius: 16, padding: 24, borderWidth: 1, borderColor: C.line, alignItems: 'center', gap: 8, marginTop: 10 },
-  emptyTitle: { color: C.ink, fontWeight: '900', fontSize: 16 },
-  empty: { color: C.muted, fontSize: 12, textAlign: 'center', lineHeight: 18 }
+  page: { flex: 1, backgroundColor: C.white },
+  rowCenter: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  online: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: C.surface },
+  onlineOn: { backgroundColor: C.ink },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  stats: { flexDirection: 'row', gap: 10 },
+  stat: { flex: 1, padding: 14, borderRadius: radius.md, borderWidth: 1, borderColor: C.line, gap: 2 },
+  activeJob: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: radius.lg, backgroundColor: C.brand },
+  claims: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: radius.md, backgroundColor: C.amberSoft },
+  card: { padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: C.line },
+  icon: { width: 44, height: 44, borderRadius: 12, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' }
 });
-

@@ -1,310 +1,237 @@
-import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { categories } from '../src/matching';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DispatchModal } from '../src/dispatch-modal';
+import { LocationPromptModal } from '../src/location-modal';
 import { useMarketplace } from '../src/marketplace';
+import { categories, resolveCategory } from '../src/matching';
 import { NearbyMap } from '../src/nearby-map';
-import { BottomNav } from '../src/navigation';
+import { ScreenHeader } from '../src/navigation';
+import { pickImage } from '../src/permissions';
 import { useToast } from '../src/toast';
 import { MapProPin, ServiceKind } from '../src/types';
-import { Button, C, Icon } from '../src/ui';
-import { DispatchModal } from '../src/dispatch-modal';
+import { Button, C, Card, Chip, Field, Icon, radius, rupee, type } from '../src/ui';
 
 export default function Request() {
   const router = useRouter();
   const toast = useToast();
-  const { estimate, request, addCustomCategory } = useMarketplace();
-  const [kind, setKind] = useState<ServiceKind>('Plumbing');
-  const [customCatInput, setCustomCatInput] = useState('');
-  const [urgent, setUrgent] = useState(false);
-  const [title, setTitle] = useState('');
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ category?: string; title?: string }>();
+  const { profile, request, addCustomCategory } = useMarketplace();
+
+  const [kind, setKind] = useState<ServiceKind>(() => resolveCategory(params.category) ?? 'Plumbing');
+  const [customKind, setCustomKind] = useState('');
+  const [title, setTitle] = useState(params.title ?? '');
   const [detail, setDetail] = useState('');
-  const [imageUri, setImageUri] = useState<string | undefined>(undefined);
-  const [selectedProPin, setSelectedProPin] = useState<MapProPin | null>(null);
-  const [dispatching, setDispatching] = useState(false);
-  const [createdJobId, setCreatedJobId] = useState<string | null>(null);
+  const [urgent, setUrgent] = useState(false);
+  const [imageUri, setImageUri] = useState<string | undefined>();
+  const [preferred, setPreferred] = useState<MapProPin | null>(null);
+  const [budget, setBudget] = useState('');
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [error, setError] = useState<string | undefined>();
 
-  const reqCategoryScrollRef = useRef<ScrollView>(null);
-  const [scrollPos, setScrollPos] = useState(0);
-  const [isUserInteracting, setIsUserInteracting] = useState(false);
+  const center = useMemo(
+    () => (profile?.liveLat && profile?.liveLng ? { lat: profile.liveLat, lng: profile.liveLng } : null),
+    [profile?.liveLat, profile?.liveLng]
+  );
+  const address = profile?.address || profile?.locationName;
 
-  useEffect(() => {
-    if (isUserInteracting) return;
-    const interval = setInterval(() => {
-      setScrollPos(prev => {
-        const nextPos = prev + 1.5;
-        const maxScroll = categories.length * 130;
-        const wrapPos = nextPos >= maxScroll ? 0 : nextPos;
-        reqCategoryScrollRef.current?.scrollTo({ x: wrapPos, animated: false });
-        return wrapPos;
-      });
-    }, 45);
-
-    return () => clearInterval(interval);
-  }, [isUserInteracting]);
-
-  const marketMatch = estimate(kind, urgent ? 'Urgent' : 'Standard', imageUri);
-
-  const attachPhoto = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.7
-    });
-
-    if (!res.canceled && res.assets[0]?.uri) {
-      const uri = res.assets[0].uri;
-      setImageUri(uri);
-      toast.show('Issue photo analyzed by AI price estimator', 'success');
-    }
-  };
-
-  const handleAddCustomCategory = () => {
-    if (!customCatInput.trim()) return;
-    const catName = customCatInput.trim();
-    addCustomCategory(catName);
-    setKind(catName);
-    setCustomCatInput('');
-    toast.show(`Added new service category: ${catName}`, 'success');
+  const addPhoto = async () => {
+    const uri = await pickImage();
+    if (uri) setImageUri(uri);
   };
 
   const submit = () => {
-    if (!title.trim()) {
-      return Alert.alert('Issue Title Required', 'Please describe what needs fixing.');
+    if (title.trim().length < 3) {
+      setError('Tell the pro what needs doing.');
+      return;
     }
-
+    let finalKind = kind;
+    if (kind === 'Other' && customKind.trim()) {
+      addCustomCategory(customKind.trim());
+      finalKind = customKind.trim();
+    }
     const id = request({
       title: title.trim(),
-      kind,
-      detail: detail.trim() || 'Service request submitted via mobile app',
+      kind: finalKind,
+      detail: detail.trim(),
       urgency: urgent ? 'Urgent' : 'Standard',
-      imageUri
+      imageUri,
+      address,
+      preferredProPhone: preferred?.phone,
+      preferredProName: preferred?.name,
+      budget: Number(budget) > 0 ? Number(budget) : undefined
     });
-
-    setCreatedJobId(id);
-    setDispatching(true);
-  };
-
-  const handleDispatchFinish = () => {
-    setDispatching(false);
-    toast.show('Request matched with nearby pro! Arrival PIN generated.', 'success');
-    if (createdJobId) {
-      router.replace(`/job/${createdJobId}` as any);
-    }
+    setJobId(id);
+    setPosting(true);
   };
 
   return (
-    <SafeAreaView style={s.page}>
-      <ScrollView contentContainerStyle={s.content}>
-        <Text style={s.kicker}>LOCAL SERVICE REQUEST</Text>
-        <Text style={s.title}>What needs fixing?</Text>
-        <Text style={s.sub}>We match your issue to nearby verified service professionals with transparent AI market pricing.</Text>
+    <View style={s.page}>
+      <ScreenHeader title={`Book ${kind === 'Other' ? 'a service' : kind.toLowerCase()}`} />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <Text style={s.label}>Service</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips} style={{ marginHorizontal: -20 }}>
+            {categories.map(c => <Chip key={c} label={c} selected={kind === c} onPress={() => setKind(c)} />)}
+          </ScrollView>
+          {kind === 'Other' && (
+            <Field style={{ marginTop: 12 }} value={customKind} onChangeText={setCustomKind} placeholder="What kind of service? e.g. CCTV repair" />
+          )}
 
-        <Text style={s.label}>Active Service Pros Nearby</Text>
-        <NearbyMap
-          onSelectPro={pro => {
-            setSelectedProPin(pro);
-            if (pro.skills[0]) {
-              setKind(pro.skills[0]);
-            }
-          }}
-        />
+          <Text style={s.label}>What needs doing?</Text>
+          <Field
+            testID="request-title"
+            value={title}
+            onChangeText={v => { setTitle(v); setError(undefined); }}
+            placeholder="e.g. Kitchen sink leaking under the cabinet"
+            error={error}
+            maxLength={120}
+          />
+          <Field
+            style={{ marginTop: 10 }}
+            value={detail}
+            onChangeText={setDetail}
+            placeholder="Anything else the pro should know? (optional)"
+            multiline
+            maxLength={600}
+          />
 
-        {selectedProPin && (
-          <View style={s.selectedProNotice}>
-            <Icon name="checkmark-circle" size={18} color={C.green} />
-            <Text style={s.selectedProNoticeText}>
-              Selected pro: <Text style={{ fontWeight: '900' }}>{selectedProPin.name}</Text> ({selectedProPin.skills.join(', ')})
-            </Text>
-          </View>
-        )}
-
-        <ScrollView
-          ref={reqCategoryScrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 8, paddingVertical: 6, paddingRight: 40 }}
-          onTouchStart={() => setIsUserInteracting(true)}
-          onTouchEnd={() => setTimeout(() => setIsUserInteracting(false), 3000)}
-          onScrollBeginDrag={() => setIsUserInteracting(true)}
-          onScrollEndDrag={() => setTimeout(() => setIsUserInteracting(false), 3000)}
-        >
-          {categories.map(x => (
-            <Pressable key={x} onPress={() => setKind(x)}>
-              <Text style={[s.option, kind === x && s.selected]}>
-                {kind === x && '✓ '}{x}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        {/* Custom Category Input under "Other" */}
-        {kind === 'Other' && (
-          <View style={s.customCatBox}>
-            <TextInput
-              value={customCatInput}
-              onChangeText={setCustomCatInput}
-              placeholder="Type new service category name..."
-              placeholderTextColor="#9AA39F"
-              style={s.customInput}
-            />
-            <Button label="Add Category" onPress={handleAddCustomCategory} icon="add-circle" secondary />
-          </View>
-        )}
-
-        <Text style={s.label}>Describe the issue</Text>
-        <TextInput
-          value={title}
-          onChangeText={setTitle}
-          placeholder="e.g. Kitchen sink pipe leaking under cabinet"
-          placeholderTextColor="#9AA39F"
-          style={s.input}
-        />
-
-        {/* Issue Photo Attachment with AI Parsing */}
-        <Text style={s.label}>Attach Issue Photo (AI Price & Time Parsing)</Text>
-        <View style={s.photoBox}>
+          <Text style={s.label}>Photo</Text>
           {imageUri ? (
-            <View style={{ gap: 8 }}>
-              <Image source={{ uri: imageUri }} style={s.photoPreview} />
-              <View style={s.aiAnalysisBadge}>
-                <Icon name="sparkles" size={16} color={C.gold} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.aiAnalysisTitle}>AI Image Complexity Analysis</Text>
-                  <Text style={s.aiAnalysisSub}>
-                    {marketMatch.complexityLabel} · Multiplier {marketMatch.complexityMultiplier}x · Est duration {marketMatch.workDurationEst}
-                  </Text>
-                </View>
+            <View>
+              <Image source={{ uri: imageUri }} style={s.photo} />
+              <View style={s.photoActions}>
+                <Button label="Replace" size="md" variant="secondary" icon="image-outline" onPress={addPhoto} style={{ flex: 1 }} />
+                <Button label="Remove" size="md" variant="ghost" icon="trash-outline" onPress={() => setImageUri(undefined)} style={{ flex: 1 }} />
               </View>
-              <Button label="Change Photo" onPress={attachPhoto} icon="camera" secondary />
             </View>
           ) : (
-            <Pressable onPress={attachPhoto} style={s.uploadBtn}>
-              <Icon name="camera" color={C.green} size={22} />
-              <Text style={s.uploadText}>Upload or capture issue photo for AI estimate</Text>
+            <Pressable onPress={addPhoto} accessibilityRole="button" style={({ pressed }) => [s.upload, pressed && { backgroundColor: C.surface }]}>
+              <Icon name="camera-outline" size={22} color={C.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={type.bodyStrong}>Add a photo</Text>
+                <Text style={type.small}>Helps pros quote accurately</Text>
+              </View>
+              <Icon name="add" size={22} color={C.ink} />
             </Pressable>
           )}
-        </View>
 
-        {/* Urgency Selector */}
-        <Text style={s.label}>Priority Dispatch</Text>
-        <View style={s.priority}>
-          <Pressable onPress={() => setUrgent(false)} style={{ flex: 1 }}>
-            <Text style={[s.priorityOption, !urgent && s.selected]}>Standard Service</Text>
-          </Pressable>
-          <Pressable onPress={() => setUrgent(true)} style={{ flex: 1 }}>
-            <Text style={[s.priorityOption, urgent && s.urgent]}>Urgent (+₹150 Surge)</Text>
-          </Pressable>
-        </View>
-
-        {/* Itemized Market Pricing Algorithm Card */}
-        <View style={s.priceBreakdownCard}>
-          <View style={s.priceHeaderRow}>
-            <View style={s.priceIcon}>
-              <Icon name="calculator" color={C.white} />
-            </View>
+          <Text style={s.label}>Address</Text>
+          <Pressable onPress={() => setLocationOpen(true)} accessibilityRole="button" style={({ pressed }) => [s.upload, { borderStyle: 'solid' }, pressed && { backgroundColor: C.surface }]}>
+            <Icon name="location-outline" size={22} color={C.ink} />
             <View style={{ flex: 1 }}>
-              <Text style={s.priceLabel}>Current Local Market Price</Text>
-              <Text style={s.cost}>₹{marketMatch.estimate}</Text>
+              <Text style={type.bodyStrong} numberOfLines={1}>{address ? address.split(',')[0] : 'Add your address'}</Text>
+              {address ? <Text style={type.small} numberOfLines={1}>{address}</Text> : null}
             </View>
+            <Text style={type.smallStrong}>Change</Text>
+          </Pressable>
+
+          <Text style={s.label}>When</Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Choice title="Standard" body="Within a few hours" selected={!urgent} onPress={() => setUrgent(false)} />
+            <Choice title="Urgent" body="ASAP — pros notified first" selected={urgent} onPress={() => setUrgent(true)} />
           </View>
 
-          <View style={s.breakdownDivider} />
+          <Text style={s.label}>Your budget <Text style={[type.small, { fontWeight: '400' }]}>(optional)</Text></Text>
+          <Field
+            value={budget}
+            onChangeText={v => setBudget(v.replace(/\D/g, '').slice(0, 7))}
+            placeholder="Leave empty to discuss with your pro"
+            keyboardType="number-pad"
+            prefix="₹"
+          />
 
-          <View style={s.breakdownRow}>
-            <Text style={s.breakdownLabel}>AI Labor Cost ({kind})</Text>
-            <Text style={s.breakdownVal}>₹{marketMatch.aiLaborCost}</Text>
-          </View>
-          <View style={s.breakdownRow}>
-            <Text style={s.breakdownLabel}>AI Parts / Material Cost</Text>
-            <Text style={s.breakdownVal}>₹{marketMatch.aiPartsCost}</Text>
-          </View>
-          <View style={s.breakdownRow}>
-            <Text style={s.breakdownLabel}>Distance Travel ({marketMatch.distanceKm} km @ ₹10/km)</Text>
-            <Text style={s.breakdownVal}>+₹{marketMatch.distanceCharge}</Text>
-          </View>
-          <View style={s.breakdownRow}>
-            <Text style={s.breakdownLabel}>Estimated Time Duration Fee</Text>
-            <Text style={s.breakdownVal}>+₹{marketMatch.timeFee}</Text>
-          </View>
-          {urgent && (
-            <View style={s.breakdownRow}>
-              <Text style={s.breakdownLabel}>Urgency Priority Surge</Text>
-              <Text style={s.breakdownVal}>+₹{marketMatch.surgeCharge}</Text>
+          <Text style={s.label}>Pros nearby</Text>
+          <NearbyMap height={180} center={center} kind={kind} onSelectPro={setPreferred} selectedProId={preferred?.id ?? null} />
+          <Text style={[type.caption, { marginTop: 8 }]}>
+            {preferred ? `${preferred.name} will see your request first. Others can still quote.` : 'Tap a pro to ask them first, or let anyone nearby quote.'}
+          </Text>
+
+          <Card style={{ marginTop: 24 }}>
+            <View style={s.note}>
+              <Icon name="shield-checkmark-outline" size={16} color={C.brandDark} />
+              <Text style={[type.caption, { flex: 1, color: C.brandDark }]}>
+                You and your pro decide the price. Pros send their own quote — or accept your budget. Nothing is charged until you both agree, and only then is the arrival PIN created.
+              </Text>
             </View>
-          )}
-          <View style={s.breakdownRow}>
-            <Text style={s.breakdownLabel}>Estimated Work Duration</Text>
-            <Text style={[s.breakdownVal, { color: C.indigo }]}>{marketMatch.workDurationEst}</Text>
-          </View>
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={type.caption}>Price</Text>
+          <Text style={type.heading}>{budget ? rupee(Number(budget)) : 'Agree with pro'}</Text>
         </View>
+        <Button testID="post-request" label="Get quotes" icon="arrow-forward" onPress={submit} style={{ flex: 1.6 }} />
+      </View>
 
-        {/* Arrival PIN Security Notice */}
-        <View style={s.pinNoticeBox}>
-          <Icon name="key" size={20} color={C.gold} />
-          <View style={{ flex: 1 }}>
-            <Text style={s.pinNoticeTitle}>Arrival Verification Security PIN</Text>
-            <Text style={s.pinNoticeSub}>A unique 4-digit arrival PIN will be generated for your booking. Share it with your pro upon arrival.</Text>
-          </View>
-        </View>
-
-        <Button label="Find Nearby Pro" onPress={submit} icon="navigate" />
-      </ScrollView>
-
-      {/* Uber/Rapido Style Slide-Up Bottom Sheet Dispatch Animation Modal */}
-      <DispatchModal
-        visible={dispatching}
-        onDispatchComplete={handleDispatchFinish}
-        serviceKind={kind}
-        estimate={marketMatch.estimate}
-        aiLaborCost={marketMatch.aiLaborCost}
-        aiPartsCost={marketMatch.aiPartsCost}
-        distanceKm={marketMatch.distanceKm}
+      <LocationPromptModal
+        visible={locationOpen}
+        onClose={() => setLocationOpen(false)}
+        savedPlaces={profile?.role === 'customer' ? profile.savedPlaces : []}
       />
 
-      <BottomNav />
-    </SafeAreaView>
+      <DispatchModal
+        visible={posting}
+        serviceKind={kind}
+        preferredName={preferred?.name}
+        onDispatchComplete={() => {
+          setPosting(false);
+          toast.show('Request posted. Quotes will appear here.', 'success');
+          if (jobId) router.replace(`/job/${jobId}` as any);
+        }}
+      />
+    </View>
+  );
+}
+
+function Choice({ title, body, selected, onPress }: { title: string; body: string; selected: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      style={({ pressed }) => [s.choice, selected && s.choiceOn, pressed && !selected && { backgroundColor: C.surface }]}
+    >
+      <Text style={type.bodyStrong}>{title}</Text>
+      <Text style={type.caption}>{body}</Text>
+    </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  page: { flex: 1, backgroundColor: C.paper },
-  content: { padding: 18, paddingBottom: 130 },
-  kicker: { color: C.green, fontSize: 11, fontWeight: '900', letterSpacing: 1.3, marginTop: 20 },
-  title: { color: C.navy, fontSize: 26, fontWeight: '900', marginTop: 5 },
-  sub: { color: C.muted, lineHeight: 19, marginTop: 6, fontSize: 13 },
-  label: { color: C.navy, fontWeight: '800', marginTop: 22, marginBottom: 8, fontSize: 14 },
-  selectedProNotice: { backgroundColor: C.mint, borderRadius: 12, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  selectedProNoticeText: { color: C.green, fontSize: 12 },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  option: { backgroundColor: C.white, borderColor: '#BCD5C7', borderWidth: 1, borderRadius: 12, paddingHorizontal: 11, paddingVertical: 8, color: C.green, fontWeight: '700', fontSize: 12, overflow: 'hidden' },
-  selected: { backgroundColor: C.green, color: C.white, borderColor: C.green },
-  customCatBox: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' },
-  customInput: { flex: 1, height: 48, backgroundColor: C.white, borderWidth: 1, borderColor: C.line, borderRadius: 12, paddingHorizontal: 12, color: C.ink, fontSize: 13, outlineStyle: 'none' as any },
-  input: { height: 50, backgroundColor: C.white, borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingHorizontal: 14, color: C.ink, fontSize: 14, outlineStyle: 'none' as any },
-  detail: { height: 75, marginTop: 8, textAlignVertical: 'top', paddingTop: 12 },
-  photoBox: { backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.line, padding: 12 },
-  uploadBtn: { height: 60, borderRadius: 12, borderWidth: 1, borderColor: '#BCD5C7', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 8 },
-  uploadText: { color: C.green, fontWeight: '800', fontSize: 13 },
-  photoPreview: { width: '100%', height: 140, borderRadius: 12 },
-  aiAnalysisBadge: { backgroundColor: '#FFFBEB', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#FDE68A', flexDirection: 'row', alignItems: 'center', gap: 8 },
-  aiAnalysisTitle: { color: C.navy, fontWeight: '900', fontSize: 12 },
-  aiAnalysisSub: { color: '#B45309', fontSize: 11, marginTop: 2, fontWeight: '600' },
-  priority: { flexDirection: 'row', gap: 9 },
-  priorityOption: { textAlign: 'center', backgroundColor: C.white, borderWidth: 1, borderColor: C.line, borderRadius: 12, padding: 12, color: C.ink, fontWeight: '700', fontSize: 12, overflow: 'hidden' },
-  urgent: { backgroundColor: '#FFF0E8', color: '#B45229', borderColor: '#F4C5AD' },
-  priceBreakdownCard: { backgroundColor: C.white, borderRadius: 18, borderWidth: 1, borderColor: C.line, padding: 16, marginVertical: 18, gap: 8 },
-  priceHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  priceIcon: { backgroundColor: C.navy, height: 42, width: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  priceLabel: { color: C.muted, fontSize: 11, fontWeight: '700' },
-  cost: { color: C.navy, fontSize: 24, fontWeight: '900', marginTop: 2 },
-  breakdownDivider: { height: 1, backgroundColor: C.line, marginVertical: 4 },
-  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  breakdownLabel: { color: C.muted, fontSize: 12 },
-  breakdownVal: { color: C.navy, fontSize: 12, fontWeight: '800' },
-  pinNoticeBox: { backgroundColor: '#FFFBEB', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#FDE68A', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
-  pinNoticeTitle: { color: C.navy, fontWeight: '900', fontSize: 13 },
-  pinNoticeSub: { color: '#B45309', fontSize: 11, marginTop: 2, lineHeight: 15 }
+  page: { flex: 1, backgroundColor: C.white },
+  content: { paddingHorizontal: 20, paddingBottom: 40 },
+  label: { fontSize: 15, fontWeight: '600', color: C.ink, marginTop: 24, marginBottom: 10 },
+  chips: { gap: 8, paddingHorizontal: 20 },
+  photo: { width: '100%', height: 180, borderRadius: radius.lg, backgroundColor: C.surface },
+  photoActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  upload: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 14,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: C.lineStrong
+  },
+  choice: { flex: 1, padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: C.lineStrong, gap: 2 },
+  choiceOn: { borderColor: C.ink, borderWidth: 1.5, backgroundColor: C.surface },
+  note: { flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.brandSoft, borderRadius: 12, padding: 10, marginTop: 14 },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: C.lineStrong,
+    backgroundColor: C.white
+  }
 });
-
-

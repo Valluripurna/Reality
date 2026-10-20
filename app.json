@@ -4,20 +4,86 @@
     "slug": "realitychain",
     "scheme": "realitychain",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "androidStatusBar": { "backgroundColor": "#FAFBF9", "barStyle": "dark-content", "translucent": false },
+    "icon": "./assets/icon.png",
+    "primaryColor": "#111214",
+    "backgroundColor": "#FFFFFF",
+    "androidStatusBar": {
+      "backgroundColor": "#FFFFFF",
+      "barStyle": "dark-content",
+      "translucent": false
+    },
     "android": {
       "package": "com.realitychain.app",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#0F172A"
-      }
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111214"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
+      ]
     },
     "ios": {
       "bundleIdentifier": "com.realitychain.app",
-      "supportsTablet": true
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": ["upi", "tel", "sms"]
+      }
     },
-    "plugins": ["expo-router", ["expo-image-picker", { "photosPermission": "Allow RealityChain to attach evidence from your photos." }]],
-    "experiments": { "typedRoutes": true }
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "RealityChain",
+      "themeColor": "#111214"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "imageWidth": 120,
+          "resizeMode": "contain",
+          "backgroundColor": "#111214",
+          "dark": {
+            "image": "./assets/splash.png",
+            "backgroundColor": "#111214"
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "RealityChain uses your photos so you can attach a picture of the problem or your ID documents.",
+          "cameraPermission": "RealityChain uses the camera to capture photo evidence of service work."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "RealityChain uses your location to find service pros near you and to share it in an SOS."
+        }
+      ],
+      "expo-status-bar",
+      "expo-font",
+      "expo-notifications"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }

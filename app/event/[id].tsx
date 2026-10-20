@@ -1,225 +1,141 @@
-import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Image, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { TimelineItem } from '../../src/types';
+import { Image, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScreenHeader } from '../../src/navigation';
+import { capturePhoto } from '../../src/permissions';
+import { Sheet } from '../../src/sheet';
 import { useEvents } from '../../src/store/events';
-import { useMarketplace } from '../../src/marketplace';
-import { Button, C, Icon } from '../../src/ui';
 import { useToast } from '../../src/toast';
-import { BottomNav } from '../../src/navigation';
+import { TimelineItem } from '../../src/types';
+import { Badge, Button, C, EmptyState, Field, Icon, IconButton, IconName, ListRow, radius, type } from '../../src/ui';
 
-const icon: Record<string, any> = { Photo: 'camera', Note: 'eye', Action: 'paper-plane', Verification: 'checkmark-circle', Location: 'location', Message: 'chatbubble' };
+const kindIcon: Record<string, IconName> = {
+  Photo: 'camera',
+  Note: 'create',
+  Action: 'arrow-forward',
+  Verification: 'checkmark',
+  Location: 'location',
+  Message: 'chatbubble'
+};
 
 export default function EventDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const toast = useToast();
-  const { events, addItem, toggleResolved } = useEvents();
-  const event = events.find(e => e.id === id);
+  const insets = useSafeAreaInsets();
+  const { events, addItem, setStatus } = useEvents();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
+  const event = events.find(e => e.id === id);
 
-  if (!event) return null;
+  if (!event) {
+    return (
+      <View style={s.page}>
+        <ScreenHeader title="Record" fallback="/records" />
+        <EmptyState icon="document-outline" title="Record not found" body="It may belong to another account on this device." action="All records" onAction={() => router.replace('/records')} />
+      </View>
+    );
+  }
 
-  const time = () => new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-  const add = (item: TimelineItem) => {
-    addItem(event.id, item);
+  const add = (item: Omit<TimelineItem, 'id' | 'at'>) => {
+    addItem(event.id, { ...item, id: `${Date.now()}`, at: 'Now' });
     setOpen(false);
     setNote('');
-    toast.show('Record added to timeline & database', 'success');
+    toast.show('Added to record', 'success');
   };
 
-  const photo = async () => {
-    const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
-    if (!res.canceled && res.assets[0]?.uri) {
-      add({
-        id: Date.now().toString(),
-        kind: 'Photo',
-        title: 'Photo evidence captured',
-        detail: 'Captured on device · saved in local database',
-        at: time(),
-        imageUri: res.assets[0].uri
-      });
-    }
-  };
-
-  const handleToggleResolve = () => {
-    toggleResolved(event.id);
-    if (event.status === 'Open') {
-      addItem(event.id, {
-        id: Date.now().toString(),
-        kind: 'Verification',
-        title: 'Outcome verified & resolved',
-        detail: 'Event status updated in database',
-        at: time(),
-        verified: true
-      });
-      toast.show('Event verified and marked as Resolved', 'success');
-    } else {
-      toast.show('Event reopened for updates', 'info');
-    }
+  const share = async () => {
+    const lines = [
+      `${event.title} — ${event.type}`,
+      `Status: ${event.status} · Started ${event.startedAt}`,
+      '',
+      ...event.items.map(i => `• ${i.at} — ${i.title}${i.detail ? `: ${i.detail}` : ''}`),
+      '',
+      'Recorded with RealityChain'
+    ];
+    try { await Share.share({ message: lines.join('\n'), title: event.title }); } catch { /* user dismissed */ }
   };
 
   return (
-    <SafeAreaView style={st.page}>
-      <ScrollView contentContainerStyle={st.scroll}>
-        <View style={st.nav}>
-          <Pressable onPress={() => router.back()}>
-            <Icon name="arrow-back" size={24} />
-          </Pressable>
-          <Pressable onPress={() => {
-            Alert.alert('Evidence Package', 'Package generation created & synchronized with database.');
-            toast.show('Evidence package exported successfully!', 'success');
-          }}>
-            <Icon name="share-outline" size={23} />
-          </Pressable>
+    <View style={s.page}>
+      <ScreenHeader title="Record" fallback="/records" right={<IconButton icon="share-outline" label="Share record" onPress={share} tone="plain" />} />
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 120 }} showsVerticalScrollIndicator={false}>
+        <View style={{ paddingTop: 16, gap: 6 }}>
+          <Badge label={event.status === 'Resolved' ? 'Closed' : 'Open'} tone={event.status === 'Resolved' ? 'brand' : 'neutral'} />
+          <Text style={type.display}>{event.title}</Text>
+          <Text style={type.small}>{event.type} · started {event.startedAt}</Text>
         </View>
 
-        <Text style={st.category}>{event.type.toUpperCase()}</Text>
-        <Text style={st.title}>{event.title}</Text>
-
-        <View style={st.status}>
-          <View style={[st.dot, event.status === 'Resolved' && { backgroundColor: C.green }]} />
-          <Text style={st.statusText}>{event.status} · Started {event.startedAt}</Text>
+        <View style={s.integrity}>
+          <Icon name="lock-closed-outline" size={16} color={C.brandDark} />
+          <Text style={[type.caption, { flex: 1, color: C.brandDark }]}>Entries are timestamped when added and can't be edited afterwards.</Text>
         </View>
 
-        <View style={st.integrity}>
-          <Icon name="shield-checkmark" color={C.green} />
-          <View>
-            <Text style={st.integrityTitle}>Evidence Integrity Active</Text>
-            <Text style={st.integrityText}>Records are timestamped and preserved in your database.</Text>
-          </View>
-        </View>
-
-        <View style={st.heading}>
-          <Text style={st.h2}>Timeline Records</Text>
-          <Text style={st.hint}>{event.items.length} items</Text>
-        </View>
-
-        {event.items.map((item, i) => (
-          <View key={item.id} style={st.row}>
-            <View style={st.rail}>
-              <View style={[st.circle, item.kind === 'Verification' && { backgroundColor: C.mint }]}>
-                <Icon
-                  name={(icon[item.kind] ?? 'document') as any}
-                  size={16}
-                  color={item.kind === 'Verification' ? C.green : C.white}
-                />
+        <Text style={[type.heading, { marginTop: 24, marginBottom: 14 }]}>Timeline · {event.items.length}</Text>
+        {event.items.map((item, i) => {
+          const last = i === event.items.length - 1;
+          const verified = item.kind === 'Verification';
+          return (
+            <View key={item.id} style={s.row}>
+              <View style={s.rail}>
+                <View style={[s.dot, verified && { backgroundColor: C.brand }]}>
+                  <Icon name={kindIcon[item.kind] ?? 'ellipse'} size={13} color={C.white} />
+                </View>
+                {!last && <View style={s.line} />}
               </View>
-              {i < event.items.length - 1 && <View style={st.line} />}
+              <View style={{ flex: 1, paddingBottom: last ? 0 : 22 }}>
+                <Text style={type.caption}>{item.at}</Text>
+                <Text style={[type.bodyStrong, { marginTop: 2 }]}>{item.title}</Text>
+                {item.detail ? <Text style={[type.small, { marginTop: 2 }]}>{item.detail}</Text> : null}
+                {item.imageUri ? <Image source={{ uri: item.imageUri }} style={s.image} /> : null}
+              </View>
             </View>
-            <View style={st.item}>
-              <Text style={st.time}>{item.at}</Text>
-              <Text style={st.itemTitle}>{item.title}</Text>
-              <Text style={st.detail}>{item.detail}</Text>
-              {item.imageUri && <Image source={{ uri: item.imageUri }} style={st.image} />}
-            </View>
-          </View>
-        ))}
+          );
+        })}
 
-        <View style={st.actions}>
-          <Button label="Add Record" onPress={() => setOpen(true)} icon="add-circle" />
-          {useMarketplace().profile?.role === 'pro' && (
-            <Button
-              label={event.status === 'Open' ? 'Verify & Resolve' : 'Reopen Event'}
-              onPress={handleToggleResolve}
-              icon="checkmark-circle"
-              secondary
-            />
-          )}
-        </View>
+        {event.status === 'Open' && (
+          <Button
+            label="Close this record"
+            variant="ghost"
+            style={{ marginTop: 24 }}
+            onPress={() => {
+              addItem(event.id, { id: `${Date.now()}-close`, kind: 'Verification', title: 'Record closed', detail: 'Marked as resolved', at: 'Now', verified: true });
+              setStatus(event.id, 'Resolved');
+              toast.show('Record closed', 'success');
+            }}
+          />
+        )}
       </ScrollView>
 
-      {/* Modal Sheet for adding evidence */}
-      <Modal visible={open} transparent animationType="slide">
-        <View style={st.modalWrap}>
-          <View style={st.sheet}>
-            <View style={st.handle} />
-            <Text style={st.sheetTitle}>Add to Timeline</Text>
-            <Pressable style={st.capture} onPress={photo}>
-              <View style={st.captureIcon}>
-                <Icon name="camera" color={C.white} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={st.captureTitle}>Capture Photo Evidence</Text>
-                <Text style={st.captureText}>Timestamped & stored with image in database</Text>
-              </View>
-              <Icon name="chevron-forward" color={C.muted} />
-            </Pressable>
+      <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <Button testID="add-entry" label="Add entry" icon="add" onPress={() => setOpen(true)} />
+      </View>
 
-            <Text style={st.noteLabel}>Or Add Observation Note</Text>
-            <TextInput
-              value={note}
-              onChangeText={setNote}
-              placeholder="What did you observe?"
-              placeholderTextColor="#9AA39F"
-              style={st.note}
-              multiline
-            />
-
-            <View style={st.sheetButtons}>
-              <Button label="Cancel" onPress={() => setOpen(false)} icon="close" secondary />
-              <Button
-                label="Save Note"
-                onPress={() =>
-                  note.trim() &&
-                  add({
-                    id: Date.now().toString(),
-                    kind: 'Note',
-                    title: 'Observation recorded',
-                    detail: note.trim(),
-                    at: time()
-                  })
-                }
-                icon="checkmark"
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <BottomNav />
-    </SafeAreaView>
+      <Sheet visible={open} onClose={() => setOpen(false)} title="Add to record">
+        <ListRow
+          icon="camera-outline"
+          title="Take a photo"
+          subtitle="Saved with the time it was taken"
+          onPress={async () => {
+            const uri = await capturePhoto();
+            if (uri) add({ kind: 'Photo', title: 'Photo added', detail: '', imageUri: uri });
+          }}
+        />
+        <Field value={note} onChangeText={setNote} placeholder="Or write a note — what did you see or agree?" multiline maxLength={500} />
+        <Button label="Save note" disabled={!note.trim()} onPress={() => add({ kind: 'Note', title: 'Note', detail: note.trim() })} />
+      </Sheet>
+    </View>
   );
 }
 
-const st = StyleSheet.create({
-  page: { flex: 1, backgroundColor: C.paper },
-  scroll: { padding: 18, paddingBottom: 80 },
-  nav: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  category: { marginTop: 24, color: C.green, fontWeight: '900', fontSize: 11, letterSpacing: 1.2 },
-  title: { color: C.ink, fontSize: 28, fontWeight: '900', marginTop: 5 },
-  status: { flexDirection: 'row', gap: 7, alignItems: 'center', marginTop: 8 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.orange },
-  statusText: { color: C.muted, fontSize: 12, fontWeight: '700' },
-  integrity: { backgroundColor: C.mint, borderRadius: 15, padding: 13, flexDirection: 'row', gap: 11, marginTop: 20, alignItems: 'center' },
-  integrityTitle: { color: C.ink, fontWeight: '800', fontSize: 13 },
-  integrityText: { color: C.muted, fontSize: 11, marginTop: 2 },
-  heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 24, marginBottom: 16 },
-  h2: { color: C.ink, fontWeight: '900', fontSize: 18 },
-  hint: { color: C.muted, fontSize: 12 },
-  row: { flexDirection: 'row' },
-  rail: { width: 42, alignItems: 'center' },
-  circle: { height: 32, width: 32, borderRadius: 16, backgroundColor: C.green, justifyContent: 'center', alignItems: 'center' },
-  line: { width: 2, backgroundColor: '#C7D9D0', flex: 1, minHeight: 40 },
-  item: { flex: 1, paddingBottom: 22, paddingTop: 2 },
-  time: { color: C.muted, fontSize: 11, fontWeight: '700' },
-  itemTitle: { color: C.ink, fontSize: 15, fontWeight: '800', marginTop: 3 },
-  detail: { color: C.muted, fontSize: 12, marginTop: 2 },
-  image: { width: '100%', height: 140, borderRadius: 12, marginTop: 8 },
-  actions: { gap: 10, marginTop: 14 },
-  modalWrap: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(16,30,24,.35)' },
-  sheet: { backgroundColor: C.paper, padding: 20, borderTopLeftRadius: 26, borderTopRightRadius: 26 },
-  handle: { width: 38, height: 4, borderRadius: 2, backgroundColor: '#C5CECA', alignSelf: 'center' },
-  sheetTitle: { fontSize: 20, fontWeight: '900', color: C.ink, marginTop: 16, marginBottom: 14 },
-  capture: { borderColor: '#B8D5C7', borderWidth: 1, borderRadius: 15, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 11 },
-  captureIcon: { backgroundColor: C.green, height: 38, width: 38, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  captureTitle: { color: C.ink, fontWeight: '800', fontSize: 14 },
-  captureText: { color: C.muted, marginTop: 2, fontSize: 11 },
-  noteLabel: { color: C.ink, fontWeight: '800', marginTop: 18, marginBottom: 8, fontSize: 13 },
-  note: { minHeight: 80, backgroundColor: C.white, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 12, textAlignVertical: 'top', color: C.ink, fontSize: 14 },
-  sheetButtons: { flexDirection: 'row', gap: 10, marginTop: 15 }
+const s = StyleSheet.create({
+  page: { flex: 1, backgroundColor: C.white },
+  integrity: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.brandSoft, padding: 12, borderRadius: radius.md, marginTop: 16 },
+  row: { flexDirection: 'row', gap: 14 },
+  rail: { width: 28, alignItems: 'center' },
+  dot: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
+  line: { flex: 1, width: 2, backgroundColor: C.line, marginTop: 2 },
+  image: { width: '100%', height: 170, borderRadius: radius.md, marginTop: 10, backgroundColor: C.surface },
+  footer: { paddingHorizontal: 20, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.lineStrong, backgroundColor: C.white },
 });
-

@@ -1,11 +1,91 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ProProfile, RealityEvent, ServiceJob, UserProfile } from './types';
+import { normaliseStage, ProBid, ProProfile, RealityEvent, ServiceJob, STAGE_RANK, UserProfile } from './types';
 
-const ACTIVE_PHONE_KEY = 'rc_active_phone_v6';
+const ACTIVE_PHONE_KEY = 'rc_active_phone_v7';
+const JOBS_KEY = 'rc_shared_marketplace_jobs_v7';
+const PROS_KEY = 'rc_global_registered_pros_v7';
+
+function normalisePhone(phone?: string): string {
+  return phone ? phone.replace(/[^0-9]/g, '').slice(-10) : '';
+}
 
 function getKey(type: 'profile' | 'jobs' | 'events' | 'sos' | 'ai_chat', phone?: string): string {
-  const p = phone ? phone.replace(/[^0-9]/g, '') : 'guest';
-  return `rc_user_${p}_${type}_v6`;
+  const p = phone ? normalisePhone(phone) : 'guest';
+  return `rc_user_${p}_${type}_v7`;
+}
+
+export function apiBase(): string | null {
+  const base = process.env.EXPO_PUBLIC_API_URL;
+  if (!base || !base.startsWith('http')) return null;
+  return base.replace(/\/$/, '');
+}
+
+/**
+ * fetch with a timeout that works in React Native. AbortSignal.timeout is a
+ * Node/Chrome API and is not implemented by RN's polyfill, so the old code threw
+ * on every call and the bare catch hid it — meaning remote sync never ran on a
+ * device at all.
+ */
+async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 4000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Merges job lists from two sources by id, keeping the most advanced stage for
+ * each job. Whole-array replacement used to let one stale device erase a job
+ * that another device had just advanced.
+ */
+export function mergeJobs(local: ServiceJob[], remote: ServiceJob[]): ServiceJob[] {
+  const byId = new Map<string, ServiceJob>();
+  const rank = (s: string) => STAGE_RANK[normaliseStage(s)];
+
+  for (const job of local) if (job?.id) byId.set(job.id, { ...job, stage: normaliseStage(job.stage) });
+  for (const raw of remote) {
+    if (!raw?.id) continue;
+    const job = { ...raw, stage: normaliseStage(raw.stage) };
+    const existing = byId.get(job.id);
+    if (!existing) {
+      byId.set(job.id, job);
+      continue;
+    }
+    // Whichever copy is further along wins; on a tie the local copy wins.
+    const base = rank(job.stage) > rank(existing.stage) ? { ...existing, ...job } : { ...job, ...existing };
+
+    const declined = [...new Set([...(existing.declinedPhones ?? []), ...(job.declinedPhones ?? [])])];
+    // One bid per pro: the most recent quote they sent.
+    const latest = new Map<string, ProBid>();
+    for (const bid of [...(existing.bids ?? []), ...(job.bids ?? [])]) {
+      if (!bid?.proPhone || declined.includes(bid.proPhone)) continue;
+      const prev = latest.get(bid.proPhone);
+      if (!prev || String(bid.timestamp) > String(prev.timestamp)) latest.set(bid.proPhone, bid);
+    }
+    const bids = [...latest.values()];
+    // The pro's live position: whichever copy saw it most recently.
+    const loc = String(job.proLocationAt ?? '') > String(existing.proLocationAt ?? '') ? job : existing;
+    byId.set(job.id, {
+      ...base,
+      proLat: loc.proLat ?? base.proLat,
+      proLng: loc.proLng ?? base.proLng,
+      proLocationAt: loc.proLocationAt ?? base.proLocationAt,
+      stageTimes: existing.stageTimes || job.stageTimes ? { ...job.stageTimes, ...existing.stageTimes, ...base.stageTimes } : undefined,
+      bids,
+      hasBids: bids.length > 0,
+      declinedPhones: declined.length ? declined : undefined
+    });
+  }
+
+  return [...byId.values()].sort((x, y) => {
+    const xi = Number(x.id);
+    const yi = Number(y.id);
+    if (Number.isFinite(xi) && Number.isFinite(yi)) return yi - xi;
+    return String(y.createdAt).localeCompare(String(x.createdAt));
+  });
 }
 
 export type SOSLogItem = {
@@ -24,8 +104,27 @@ export type AIChatMessage = {
   timestamp: string;
 };
 
+async function safeGet<T>(key: string, fallback: T): Promise<T> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    console.warn(`DB read failed for ${key}:`, err);
+    return fallback;
+  }
+}
+
+async function safeSet(key: string, value: unknown): Promise<void> {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn(`DB write failed for ${key}:`, err);
+  }
+}
+
 export class DatabaseEngine {
-  // Session Phone Tracking
+  // Session
   static async getActivePhone(): Promise<string | null> {
     try {
       return await AsyncStorage.getItem(ACTIVE_PHONE_KEY);
@@ -36,7 +135,7 @@ export class DatabaseEngine {
 
   static async setActivePhone(phone: string): Promise<void> {
     try {
-      await AsyncStorage.setItem(ACTIVE_PHONE_KEY, phone);
+      await AsyncStorage.setItem(ACTIVE_PHONE_KEY, normalisePhone(phone));
     } catch (err) {
       console.warn('DB Error setting active phone:', err);
     }
@@ -53,64 +152,11 @@ export class DatabaseEngine {
   // Profiles
   static async saveProfile(profile: UserProfile): Promise<void> {
     try {
-      const key = getKey('profile', profile.phone);
-      await AsyncStorage.setItem(key, JSON.stringify(profile));
-      if (profile.phone) {
-        await this.setActivePhone(profile.phone);
-      }
-      // If Service Pro, register in Global Pro Directory
-      if (profile.role === 'pro') {
-        await this.saveRegisteredPro(profile as ProProfile);
-      }
+      await safeSet(getKey('profile', profile.phone), profile);
+      if (profile.phone) await this.setActivePhone(profile.phone);
+      if (profile.role === 'pro') await this.saveRegisteredPro(profile as ProProfile);
     } catch (err) {
       console.warn('DB Error saving profile:', err);
-    }
-  }
-
-  // Global Registered Service Pros Registry
-  static async saveRegisteredPro(pro: ProProfile): Promise<void> {
-    try {
-      const raw = await AsyncStorage.getItem('rc_global_registered_pros_v6');
-      const list: ProProfile[] = raw ? JSON.parse(raw) : [];
-      const updated = list.filter(p => p.phone !== pro.phone);
-      updated.push(pro);
-      await AsyncStorage.setItem('rc_global_registered_pros_v6', JSON.stringify(updated));
-
-      // Push to cross-device cloud relay
-      fetch('https://api.restful-api.dev/objects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'rc_shared_pros_relay_v6',
-          name: 'RealityChain Shared Pros Relay',
-          data: { pros: updated }
-        })
-      }).catch(() => {});
-    } catch (err) {
-      console.warn('DB Error saving registered pro:', err);
-    }
-  }
-
-  static async loadRegisteredPros(): Promise<ProProfile[]> {
-    try {
-      const raw = await AsyncStorage.getItem('rc_global_registered_pros_v6');
-      let localPros: ProProfile[] = raw ? JSON.parse(raw) : [];
-
-      try {
-        const res = await fetch('https://api.restful-api.dev/objects/rc_shared_pros_relay_v6');
-        if (res.ok) {
-          const json = await res.json();
-          if (json && json.data && json.data.pros && Array.isArray(json.data.pros) && json.data.pros.length > 0) {
-            localPros = json.data.pros;
-            await AsyncStorage.setItem('rc_global_registered_pros_v6', JSON.stringify(localPros));
-          }
-        }
-      } catch {}
-
-      return localPros;
-    } catch (err) {
-      console.warn('DB Error loading registered pros:', err);
-      return [];
     }
   }
 
@@ -118,27 +164,72 @@ export class DatabaseEngine {
     try {
       const p = phone || (await this.getActivePhone()) || undefined;
       if (!p) return null;
-      const key = getKey('profile', p);
-      const raw = await AsyncStorage.getItem(key);
-      return raw ? JSON.parse(raw) : null;
+      return await safeGet<UserProfile | null>(getKey('profile', p), null);
     } catch (err) {
       console.warn('DB Error loading profile:', err);
       return null;
     }
   }
 
-  // Shared Global Marketplace Jobs Pool (With Dynamic Ngrok & Cloud Relay)
+  // Pro directory — used to enrich matching with real, opted-in pros.
+  static async saveRegisteredPro(pro: ProProfile): Promise<void> {
+    try {
+      const list = await safeGet<ProProfile[]>(PROS_KEY, []);
+      const updated = list.filter(p => normalisePhone(p.phone) !== normalisePhone(pro.phone));
+      updated.push(pro);
+      await safeSet(PROS_KEY, updated);
+
+      const base = apiBase();
+      if (!base) return;
+      fetchWithTimeout(`${base}/api/pros`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pro)
+      }).catch(() => {});
+    } catch (err) {
+      console.warn('DB Error saving registered pro:', err);
+    }
+  }
+
+  static async loadRegisteredPros(): Promise<ProProfile[]> {
+    const local = await safeGet<ProProfile[]>(PROS_KEY, []);
+    const base = apiBase();
+    if (!base) return local;
+
+    try {
+      const res = await fetchWithTimeout(`${base}/api/pros`, {}, 3000);
+      if (!res.ok) return local;
+      const payload = await res.json();
+      const remote: ProProfile[] = Array.isArray(payload) ? payload : (payload?.data ?? []);
+      if (!Array.isArray(remote) || !remote.length) return local;
+
+      const byPhone = new Map<string, ProProfile>();
+      for (const pro of local) byPhone.set(normalisePhone(pro.phone), pro);
+      for (const pro of remote) {
+        if (pro?.phone) byPhone.set(normalisePhone(pro.phone), pro);
+      }
+      const merged = [...byPhone.values()];
+      await safeSet(PROS_KEY, merged);
+      return merged;
+    } catch {
+      return local;
+    }
+  }
+
+  /**
+   * The marketplace pool. Writes merge rather than replace, and reads normalise
+   * legacy stage names so an older record cannot walk the state machine
+   * backwards.
+   */
   static async saveJobs(jobs: ServiceJob[]): Promise<void> {
     try {
-      await AsyncStorage.setItem('rc_shared_marketplace_jobs_v6', JSON.stringify(jobs));
+      const existing = await safeGet<ServiceJob[]>(JOBS_KEY, []);
+      const merged = mergeJobs(existing, jobs);
+      await safeSet(JOBS_KEY, merged);
 
-      const ngrokBase = process.env.EXPO_PUBLIC_API_URL;
-      const targetUrl = ngrokBase && ngrokBase.startsWith('http')
-        ? `${ngrokBase.replace(/\/$/, '')}/api/jobs`
-        : 'https://kvdb.io/RealityChainV6/jobs';
-
-      // Push to active ngrok backend or cloud KV store
-      fetch(targetUrl, {
+      const base = apiBase();
+      if (!base) return;
+      fetchWithTimeout(`${base}/api/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(jobs)
@@ -149,40 +240,35 @@ export class DatabaseEngine {
   }
 
   static async loadJobs(): Promise<ServiceJob[]> {
+    const local = await safeGet<ServiceJob[]>(JOBS_KEY, []);
+    const base = apiBase();
+    if (!base) return local;
+
     try {
-      const raw = await AsyncStorage.getItem('rc_shared_marketplace_jobs_v6');
-      let localJobs: ServiceJob[] = raw ? JSON.parse(raw) : [];
+      const res = await fetchWithTimeout(`${base}/api/jobs`, {}, 3000);
+      if (!res.ok) return local;
+      const payload = await res.json();
+      const remote: ServiceJob[] = Array.isArray(payload) ? payload : (payload?.data ?? []);
+      if (!Array.isArray(remote) || !remote.length) return local;
 
-      const ngrokBase = process.env.EXPO_PUBLIC_API_URL;
-      const targetUrl = ngrokBase && ngrokBase.startsWith('http')
-        ? `${ngrokBase.replace(/\/$/, '')}/api/jobs`
-        : 'https://kvdb.io/RealityChainV6/jobs';
-
-      try {
-        const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
-        if (res.ok) {
-          const resData = await res.json();
-          const json: ServiceJob[] = Array.isArray(resData) ? resData : (resData?.data ?? []);
-          if (Array.isArray(json) && json.length > 0) {
-            localJobs = json;
-            await AsyncStorage.setItem('rc_shared_marketplace_jobs_v6', JSON.stringify(localJobs));
-          }
-        }
-      } catch {}
-
-      return localJobs;
-    } catch (err) {
-      console.warn('DB Error loading marketplace jobs:', err);
-      return [];
+      const merged = mergeJobs(local, remote);
+      await safeSet(JOBS_KEY, merged);
+      return merged;
+    } catch {
+      return local;
     }
   }
 
-  // Events
+  static async loadJob(id: string): Promise<ServiceJob | null> {
+    const jobs = await this.loadJobs();
+    return jobs.find(j => j.id === id) ?? null;
+  }
+
+  // Events (evidence timelines), scoped to the signed-in phone
   static async saveEvents(events: RealityEvent[], phone?: string): Promise<void> {
     try {
       const p = phone || (await this.getActivePhone()) || undefined;
-      const key = getKey('events', p);
-      await AsyncStorage.setItem(key, JSON.stringify(events));
+      await safeSet(getKey('events', p), events);
     } catch (err) {
       console.warn('DB Error saving events:', err);
     }
@@ -191,44 +277,49 @@ export class DatabaseEngine {
   static async loadEvents(phone?: string): Promise<RealityEvent[]> {
     try {
       const p = phone || (await this.getActivePhone()) || undefined;
-      const key = getKey('events', p);
-      const raw = await AsyncStorage.getItem(key);
-      return raw ? JSON.parse(raw) : [];
+      return await safeGet<RealityEvent[]>(getKey('events', p), []);
     } catch (err) {
       console.warn('DB Error loading events:', err);
       return [];
     }
   }
 
-  // SOS Logs
+  // SOS logs
   static async saveSOSLog(log: SOSLogItem, phone?: string): Promise<void> {
     try {
       const p = phone || (await this.getActivePhone()) || undefined;
       const key = getKey('sos', p);
-      const raw = await AsyncStorage.getItem(key);
-      const list: SOSLogItem[] = raw ? JSON.parse(raw) : [];
+      const list = await safeGet<SOSLogItem[]>(key, []);
       list.unshift(log);
-      await AsyncStorage.setItem(key, JSON.stringify(list));
+      await safeSet(key, list.slice(0, 50));
     } catch (err) {
       console.warn('DB Error saving SOS log:', err);
     }
   }
 
   static async loadSOSLogs(phone?: string): Promise<SOSLogItem[]> {
-    try {
-      const p = phone || (await this.getActivePhone()) || undefined;
-      const key = getKey('sos', p);
-      const raw = await AsyncStorage.getItem(key);
-      return raw ? JSON.parse(raw) : [];
-    } catch (err) {
-      return [];
-    }
+    const p = phone || (await this.getActivePhone()) || undefined;
+    return safeGet<SOSLogItem[]>(getKey('sos', p), []);
   }
 
-  // Clear Session
-  static async clearAllData(): Promise<void> {
+  // AI chat transcript
+  static async saveAIChat(messages: AIChatMessage[], phone?: string): Promise<void> {
+    const p = phone || (await this.getActivePhone()) || undefined;
+    await safeSet(getKey('ai_chat', p), messages.slice(-100));
+  }
+
+  static async loadAIChat(phone?: string): Promise<AIChatMessage[]> {
+    const p = phone || (await this.getActivePhone()) || undefined;
+    return safeGet<AIChatMessage[]>(getKey('ai_chat', p), []);
+  }
+
+  /**
+   * Ends the session for one user. Deliberately leaves the shared job pool and
+   * the pro directory intact — logging out must not delete other people's data.
+   */
+  static async clearAllData(phone?: string): Promise<void> {
     try {
-      const p = await this.getActivePhone();
+      const p = phone || (await this.getActivePhone()) || undefined;
       if (p) {
         await AsyncStorage.multiRemove([
           getKey('profile', p),

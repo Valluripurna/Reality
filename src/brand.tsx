@@ -1,78 +1,78 @@
-import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { C } from './ui';
 
-/** Original RealityChain mark: an event seed, its preserved record, and a verified outcome. */
-export function RealityMark({ size = 48, animated = false }: { size?: number; animated?: boolean }) {
-  const ring = animated ? new Animated.Value(1) : null;
-  if (ring) Animated.loop(Animated.sequence([Animated.timing(ring, { toValue: 1.08, duration: 1500, useNativeDriver: true }), Animated.timing(ring, { toValue: 1, duration: 1500, useNativeDriver: true })])).start();
-  const core = <View style={[styles.mark, { width: size, height: size, borderRadius: size * .32 }]}><View style={[styles.orbit, { width: size * .62, height: size * .62, borderRadius: size }]} /><View style={[styles.dot, { width: size * .13, height: size * .13, borderRadius: size, left: size * .17, top: size * .22 }]} /><View style={[styles.dot, { width: size * .13, height: size * .13, borderRadius: size, right: size * .17, bottom: size * .22 }]} /><Text style={[styles.check, { fontSize: size * .42 }]}>✓</Text></View>;
-  return ring ? <Animated.View style={{ transform: [{ scale: ring }] }}>{core}</Animated.View> : core;
-}
+/**
+ * The RealityChain mark: a bold "R" whose leg lands on the baseline and rises
+ * again as a check — a record, verified.
+ *
+ * Geometry lives in a 100×100 box and is shared with
+ * scripts/generate-brand-assets.js, which rasterises the app icon, adaptive
+ * icon, splash and favicon from the very same numbers.
+ */
+export const MARK = {
+  stroke: 10.5,
+  rPath: 'M23 75 V25 H42 A13 13 0 0 1 42 51 H23 M36 51 L51 75',
+  tickPath: 'M51 75 L77 49'
+};
 
-export function BrandLockup() {
-  return <View style={styles.lockup}><RealityMark size={28}/><Text style={styles.wordmark}>RealityChain</Text></View>;
-}
+type MarkProps = {
+  size?: number;
+  /** Draw the mark on an ink tile (app-icon style). */
+  tile?: boolean;
+  /** Colour of the R. Defaults to white on a tile, ink otherwise. */
+  color?: string;
+};
 
-export function SplashScreenLogo({ onFinish }: { onFinish?: () => void }) {
-  const scale = useRef(new Animated.Value(0.4)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.sequence([
-      Animated.parallel([
-        Animated.spring(scale, { toValue: 1, friction: 6, tension: 70, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true })
-      ]),
-      Animated.delay(1400),
-      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true })
-    ]).start(() => {
-      if (onFinish) onFinish();
-    });
-  }, []);
-
+export function BrandMark({ size = 40, tile = false, color }: MarkProps) {
+  const rColor = color ?? (tile ? C.white : C.ink);
   return (
-    <View style={styles.splashBg}>
-      {/* Festive Indian Flag Tricolor Ribbon */}
-      <View style={styles.flagRibbon}>
-        <View style={styles.saffronBar} />
-        <View style={styles.whiteBar}>
-          <Text style={styles.ashokaChakra}>⚙️</Text>
-        </View>
-        <View style={styles.greenBar} />
-      </View>
+    <View accessibilityLabel="RealityChain" accessibilityRole="image" style={{ width: size, height: size }}>
+      <Svg width={size} height={size} viewBox="0 0 100 100">
+        {tile && <Rect x={0} y={0} width={100} height={100} rx={24} fill={C.ink} />}
+        <Path
+          d={MARK.rPath}
+          stroke={rColor}
+          strokeWidth={MARK.stroke}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          transform={tile ? 'translate(50 50) scale(0.78) translate(-50 -50)' : undefined}
+        />
+        <Path
+          d={MARK.tickPath}
+          stroke={C.brandBright}
+          strokeWidth={MARK.stroke}
+          strokeLinecap="round"
+          fill="none"
+          transform={tile ? 'translate(50 50) scale(0.78) translate(-50 -50)' : undefined}
+        />
+      </Svg>
+    </View>
+  );
+}
 
-      <Animated.View style={[styles.splashCenter, { opacity, transform: [{ scale }] }]}>
-        <RealityMark size={96} animated />
-        <Text style={styles.splashTitle}>RealityChain</Text>
+export function Wordmark({ size = 20, color = C.ink }: { size?: number; color?: string }) {
+  return (
+    <Text style={[styles.wordmark, { fontSize: size, color }]} accessibilityRole="header">
+      RealityChain
+    </Text>
+  );
+}
 
-        <View style={styles.festiveTag}>
-          <Text style={styles.festiveTagText}>🇮🇳 Proudly Serving Across India</Text>
-        </View>
-
-        <Text style={styles.splashSub}>Verified On-Demand Local Services</Text>
-      </Animated.View>
+/** Mark + wordmark lockup used in headers and auth screens. */
+export function BrandLockup({ size = 'medium', inverted = false }: { size?: 'small' | 'medium' | 'large'; inverted?: boolean }) {
+  const d = size === 'small' ? { mark: 28, text: 17, gap: 8 } : size === 'large' ? { mark: 44, text: 26, gap: 12 } : { mark: 34, text: 20, gap: 10 };
+  return (
+    <View style={styles.lockup}>
+      <BrandMark size={d.mark} tile={!inverted} color={inverted ? C.white : undefined} />
+      <View style={{ width: d.gap }} />
+      <Wordmark size={d.text} color={inverted ? C.white : C.ink} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mark: { backgroundColor: C.navy, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  orbit: { borderWidth: 1.5, borderColor: C.green, position: 'absolute' },
-  dot: { position: 'absolute', backgroundColor: C.gold },
-  check: { color: C.white, fontWeight: '900', marginTop: -1 },
-  lockup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  wordmark: { color: C.navy, fontSize: 18, fontWeight: '900', letterSpacing: -.4 },
-  splashBg: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: C.navy, justifyContent: 'center', alignItems: 'center', zIndex: 99999 },
-  splashCenter: { alignItems: 'center', gap: 12 },
-  splashTitle: { color: C.white, fontSize: 32, fontWeight: '900', letterSpacing: -0.5 },
-  splashSub: { color: '#94A3B8', fontSize: 14, fontWeight: '600' },
-  flagRibbon: { position: 'absolute', top: 40, flexDirection: 'row', width: 220, height: 18, borderRadius: 9, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
-  saffronBar: { flex: 1, backgroundColor: '#FF9933' },
-  whiteBar: { flex: 1, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  greenBar: { flex: 1, backgroundColor: '#138808' },
-  ashokaChakra: { fontSize: 10, marginTop: -2 },
-  festiveTag: { backgroundColor: 'rgba(255, 255, 255, 0.12)', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' },
-  festiveTagText: { color: C.gold, fontSize: 12, fontWeight: '800' }
+  lockup: { flexDirection: 'row', alignItems: 'center' },
+  wordmark: { fontWeight: '700', letterSpacing: -0.6 }
 });
-

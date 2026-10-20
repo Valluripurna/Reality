@@ -1,307 +1,124 @@
-import React, { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
+import { Sheet } from './sheet';
 import { useToast } from './toast';
-import { C, Icon } from './ui';
+import { Button, C, Divider, Icon, IconName, KeyValue, radius, rupee, type } from './ui';
+
+type Method = 'UPI' | 'Cash after Service';
 
 type PaymentModalProps = {
   visible: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  /** Receives the method used, so the job can record it. */
+  onSuccess: (method?: string) => void;
   totalEstimate: number;
   proName?: string;
+  /** The pro's own UPI ID, captured from their bid / profile. */
+  proUpi?: string;
 };
 
-export function PaymentModal({ visible, onClose, onSuccess, totalEstimate, proName = 'Service Pro' }: PaymentModalProps) {
+/**
+ * Records how a finished job was paid. With UPI, the pro's handle becomes a
+ * scannable code that opens any UPI app with the amount filled in. Cash is
+ * recorded the same way. RealityChain never moves the money itself.
+ */
+export function PaymentModal({ visible, onClose, onSuccess, totalEstimate, proName = 'your pro', proUpi }: PaymentModalProps) {
   const toast = useToast();
-  const [method, setMethod] = useState<'upi_qr' | 'cash'>('upi_qr');
+  const [method, setMethod] = useState<Method>('UPI');
+  const [paid, setPaid] = useState(false);
+  const fee = Math.round(totalEstimate * 0.1);
+  const upiId = proUpi?.trim();
+  const upiUrl = upiId
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(proName)}&am=${totalEstimate}&cu=INR&tn=${encodeURIComponent('RealityChain service')}`
+    : '';
 
-  const commissionFee = Math.round(totalEstimate * 0.10);
-  const proPayout = totalEstimate - commissionFee;
+  useEffect(() => {
+    if (visible) { setPaid(false); setMethod('UPI'); }
+  }, [visible]);
 
-  const handlePaySuccess = () => {
-    if (method === 'cash') {
-      toast.show(`Cash Payment of ₹${totalEstimate} confirmed! 10% commission (₹${commissionFee}) deducted from Pro wallet.`, 'success');
-    } else {
-      toast.show(`UPI Payment of ₹${totalEstimate} confirmed! 10% commission (₹${commissionFee}) routed to platform.`, 'success');
+  const openUpi = async () => {
+    if (!upiUrl) return toast.show(`${proName} hasn't added a UPI ID yet.`, 'warning');
+    try {
+      if (!(await Linking.canOpenURL(upiUrl))) return toast.show('No UPI app found on this device.', 'warning');
+      await Linking.openURL(upiUrl);
+    } catch {
+      toast.show("Couldn't open a UPI app.", 'warning');
     }
-    onSuccess();
+  };
+
+  const confirm = () => {
+    if (paid) return;
+    setPaid(true);
+    onSuccess(method);
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={s.backdrop}>
-        <View style={s.sheet}>
-          {/* Header */}
-          <View style={s.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.title}>Service Settle & Payment</Text>
-              <Text style={s.sub}>Choose payment method to pay {proName}</Text>
-            </View>
-            <Pressable onPress={onClose} style={s.closeBtn}>
-              <Icon name="close" size={20} color={C.navy} />
-            </Pressable>
-          </View>
-
-          {/* Amount Box */}
-          <View style={s.amountCard}>
-            <Text style={s.amountLabel}>TOTAL AMOUNT DUE</Text>
-            <Text style={s.amountVal}>₹{totalEstimate}</Text>
-
-            <View style={s.commissionDivider} />
-
-            <View style={s.commissionRow}>
-              <Text style={s.commissionLabel}>Pro Net Payout (90%)</Text>
-              <Text style={s.commissionVal}>₹{proPayout}</Text>
-            </View>
-            <View style={s.commissionRow}>
-              <Text style={s.commissionLabel}>Platform Commission (10%)</Text>
-              <Text style={s.commissionVal}>₹{commissionFee}</Text>
-            </View>
-          </View>
-
-          {/* Payment Method Selector (Cash or UPI QR) */}
-          <View style={s.tabRow}>
-            <Pressable onPress={() => setMethod('upi_qr')} style={[s.tab, method === 'upi_qr' && s.activeTab]}>
-              <Text style={[s.tabText, method === 'upi_qr' && s.activeTabText]}>📱 Scan UPI QR Code</Text>
-            </Pressable>
-            <Pressable onPress={() => setMethod('cash')} style={[s.tab, method === 'cash' && s.activeTab]}>
-              <Text style={[s.tabText, method === 'cash' && s.activeTabText]}>💵 Pay Cash to Pro</Text>
-            </Pressable>
-          </View>
-
-          {/* Method Details */}
-          {method === 'upi_qr' ? (
-            <View style={s.qrBox}>
-              <View style={s.qrGraphic}>
-                <Icon name="qr-code" size={120} color={C.navy} />
-              </View>
-              <Text style={s.qrHint}>Scan Pro's QR Code using Google Pay, PhonePe, Paytm, or BHIM</Text>
-            </View>
-          ) : (
-            <View style={s.cashBox}>
-              <Icon name="cash" size={38} color={C.green} />
-              <Text style={s.cashTitle}>Hand Exact Cash (₹{totalEstimate}) to Service Pro</Text>
-              <Text style={s.cashSub}>10% platform commission fee (₹{commissionFee}) will be automatically settled from Pro's wallet balance.</Text>
-            </View>
-          )}
-
-          {/* Confirm Button */}
-          <Pressable onPress={handlePaySuccess} style={s.payBtn}>
-            <Icon name="checkmark-circle" color={C.white} size={20} />
-            <Text style={s.payBtnText}>
-              {method === 'cash' ? `Confirm Cash Settle (₹${totalEstimate})` : `Confirm UPI Payment Received (₹${totalEstimate})`}
-            </Text>
-          </Pressable>
-        </View>
+    <Sheet visible={visible} onClose={onClose} title={`Pay ${rupee(totalEstimate)}`} subtitle={`Agreed price for your job with ${proName}`} scroll testID="payment-sheet">
+      <View style={{ gap: 10 }}>
+        <Option icon="phone-portrait-outline" title="UPI" body="Scan a code or open PhonePe, GPay, Paytm" selected={method === 'UPI'} onPress={() => setMethod('UPI')} />
+        <Option icon="cash-outline" title="Cash" body={`Hand ${rupee(totalEstimate)} to ${proName}`} selected={method === 'Cash after Service'} onPress={() => setMethod('Cash after Service')} />
       </View>
-    </Modal>
+
+      {method === 'UPI' && (
+        upiId ? (
+          <View style={s.qrCard} testID="upi-qr">
+            <View style={s.qr}><QRCode value={upiUrl} size={156} backgroundColor={C.white} color={C.ink} /></View>
+            <Text style={[type.bodyStrong, { textAlign: 'center' }]}>Scan to pay {rupee(totalEstimate)}</Text>
+            <Text style={[type.small, { textAlign: 'center' }]}>
+              Point any UPI app at this code — the amount and {proName} are already filled in.
+            </Text>
+            <View style={s.upiPill}><Icon name="at-outline" size={14} color={C.muted} /><Text style={[type.caption, { color: C.ink }]} selectable>{upiId}</Text></View>
+            <Button testID="open-upi" label="Open in a UPI app" icon="open-outline" variant="secondary" size="md" onPress={openUpi} />
+          </View>
+        ) : (
+          <View style={[s.qrCard, { alignItems: 'center' }]}>
+            <Icon name="alert-circle-outline" size={22} color={C.amberDark} />
+            <Text style={[type.small, { textAlign: 'center' }]}>
+              {proName} hasn&apos;t added a UPI ID yet. Pay in cash, or ask them to add it under Account → Payouts.
+            </Text>
+          </View>
+        )
+      )}
+
+      <View>
+        <Divider style={{ marginBottom: 8 }} />
+        <KeyValue label={`${proName} receives`} value={rupee(totalEstimate - fee)} />
+        <KeyValue label="Platform fee" value={rupee(fee)} />
+        <KeyValue label="Agreed total" value={rupee(totalEstimate)} strong />
+      </View>
+
+      <Button
+        testID="confirm-payment"
+        label={paid ? 'Payment recorded' : method === 'UPI' ? "I've paid by UPI" : "I've paid in cash"}
+        icon={paid ? 'checkmark-circle' : undefined}
+        onPress={confirm}
+        disabled={paid}
+      />
+      <Text style={[type.caption, { textAlign: 'center' }]}>We record the payment so you and your pro have the same receipt. We don&apos;t move money ourselves.</Text>
+    </Sheet>
+  );
+}
+
+function Option({ icon, title, body, selected, onPress }: { icon: IconName; title: string; body: string; selected: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="radio" accessibilityState={{ selected }} style={[s.option, selected && s.optionOn]}>
+      <Icon name={icon} size={22} color={C.ink} />
+      <View style={{ flex: 1 }}>
+        <Text style={type.bodyStrong}>{title}</Text>
+        <Text style={type.small}>{body}</Text>
+      </View>
+      <View style={[s.radio, selected && { borderColor: C.ink }]}>{selected && <View style={s.dot} />}</View>
+    </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-    justifyContent: 'flex-end'
-  },
-  sheet: {
-    backgroundColor: C.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 22,
-    gap: 14
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  title: {
-    color: C.navy,
-    fontWeight: '900',
-    fontSize: 18
-  },
-  sub: {
-    color: C.muted,
-    fontSize: 12,
-    marginTop: 2
-  },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: C.paper,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  amountCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center'
-  },
-  amountLabel: {
-    color: C.muted,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1
-  },
-  amountVal: {
-    color: C.navy,
-    fontSize: 28,
-    fontWeight: '900',
-    marginTop: 2
-  },
-  commissionDivider: {
-    height: 1,
-    backgroundColor: '#CBD5E1',
-    width: '100%',
-    marginVertical: 10
-  },
-  commissionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginVertical: 2
-  },
-  commissionLabel: {
-    color: C.muted,
-    fontSize: 11
-  },
-  commissionVal: {
-    color: C.navy,
-    fontWeight: '800',
-    fontSize: 11
-  },
-  tabRow: {
-    flexDirection: 'row',
-    gap: 6
-  },
-  tab: {
-    flex: 1,
-    backgroundColor: C.paper,
-    paddingVertical: 9,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: C.line
-  },
-  activeTab: {
-    backgroundColor: C.navy,
-    borderColor: C.navy
-  },
-  tabText: {
-    color: C.navy,
-    fontWeight: '800',
-    fontSize: 11
-  },
-  activeTabText: {
-    color: C.white
-  },
-  qrBox: {
-    alignItems: 'center',
-    paddingVertical: 10
-  },
-  qrGraphic: {
-    padding: 12,
-    backgroundColor: C.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: C.line,
-    elevation: 3
-  },
-  qrHint: {
-    color: C.muted,
-    fontSize: 11,
-    marginTop: 8
-  },
-  cashBox: {
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1.5,
-    borderColor: '#6EE7B7',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    gap: 8,
-    marginVertical: 6
-  },
-  cashTitle: {
-    color: C.navy,
-    fontWeight: '900',
-    fontSize: 14,
-    textAlign: 'center'
-  },
-  cashSub: {
-    color: C.muted,
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 16
-  },
-  upiBox: {
-    backgroundColor: C.paper,
-    padding: 14,
-    borderRadius: 14,
-    gap: 6
-  },
-  upiLabel: {
-    color: C.muted,
-    fontSize: 11
-  },
-  upiCopyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: C.white,
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: C.line
-  },
-  upiVal: {
-    color: C.navy,
-    fontWeight: '900',
-    fontSize: 14
-  },
-  copyBadge: {
-    backgroundColor: C.green,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6
-  },
-  copyText: {
-    color: C.white,
-    fontWeight: '800',
-    fontSize: 10
-  },
-  scannerBox: {
-    height: 140,
-    backgroundColor: '#0F172A',
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  scannerWindow: {
-    alignItems: 'center',
-    gap: 6
-  },
-  scannerText: {
-    color: C.white,
-    fontSize: 11,
-    fontWeight: '700'
-  },
-  payBtn: {
-    backgroundColor: C.green,
-    borderRadius: 14,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8
-  },
-  payBtnText: {
-    color: C.white,
-    fontWeight: '900',
-    fontSize: 14
-  }
+  option: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: radius.lg, borderWidth: 1, borderColor: C.lineStrong },
+  optionOn: { borderColor: C.ink, borderWidth: 1.5, backgroundColor: C.surface },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: C.lineStrong, alignItems: 'center', justifyContent: 'center' },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: C.ink },
+  qrCard: { gap: 10, padding: 16, borderRadius: radius.lg, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface },
+  qr: { alignSelf: 'center', padding: 12, borderRadius: 12, backgroundColor: C.white },
+  upiPill: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: C.white, borderWidth: 1, borderColor: C.line }
 });

@@ -1,169 +1,63 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
-import { C, Icon } from './ui';
+import * as SplashScreen from 'expo-splash-screen';
+import { BrandMark } from './brand';
+import { C } from './ui';
 
+/** Must match the expo-splash-screen `imageWidth` in app.json. */
+export const SPLASH_MARK_SIZE = 120;
+
+/**
+ * Bridges the native splash into the app. It opens pixel-identical to the
+ * native splash (same ink background, same mark, same size and position), so
+ * the handoff is invisible; then the name settles in underneath and the whole
+ * layer fades away. Total time on screen: about one second.
+ */
 export function SplashScreenOverlay({ onFinish }: { onFinish: () => void }) {
-  const scaleAnim = useRef(new Animated.Value(0.4)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
-  const pulseRingAnim = useRef(new Animated.Value(1)).current;
-  const fadeOutAnim = useRef(new Animated.Value(1)).current;
+  const name = useRef(new Animated.Value(0)).current;
+  const fade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // 1. Entrance Scale & Opacity Fade In
-    Animated.parallel([
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 900,
-        easing: Easing.out(Easing.back(1.5)),
-        useNativeDriver: true
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 700,
-        useNativeDriver: true
-      })
-    ]).start();
-
-    // 2. Pulse Ring
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseRingAnim, {
-          toValue: 1.4,
-          duration: 1000,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true
-        }),
-        Animated.timing(pulseRingAnim, {
-          toValue: 1,
-          duration: 1000,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true
-        })
-      ])
-    ).start();
-
-    // 3. Auto-finish splash screen after 2.4 seconds
-    const timer = setTimeout(() => {
-      Animated.timing(fadeOutAnim, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true
-      }).start(() => {
-        onFinish();
-      });
-    }, 2400);
-
-    return () => clearTimeout(timer);
-  }, []);
+    const seq = Animated.sequence([
+      Animated.timing(name, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.delay(380),
+      Animated.timing(fade, { toValue: 0, duration: 260, easing: Easing.in(Easing.quad), useNativeDriver: true })
+    ]);
+    seq.start(({ finished }) => finished && onFinish());
+    return () => seq.stop();
+  }, [name, fade, onFinish]);
 
   return (
-    <Animated.View style={[s.splashContainer, { opacity: fadeOutAnim }]}>
+    <Animated.View
+      accessibilityLabel="RealityChain is loading"
+      style={[s.screen, { opacity: fade }]}
+      onLayout={() => { SplashScreen.hideAsync().catch(() => {}); }}
+    >
+      <BrandMark size={SPLASH_MARK_SIZE} color={C.white} />
       <Animated.View
         style={[
-          s.logoWrapper,
-          {
-            opacity: opacityAnim,
-            transform: [{ scale: scaleAnim }]
-          }
+          s.nameWrap,
+          { opacity: name, transform: [{ translateY: name.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }
         ]}
       >
-        {/* Pulse Background Ring */}
-        <Animated.View
-          style={[
-            s.pulseRing,
-            {
-              transform: [{ scale: pulseRingAnim }]
-            }
-          ]}
-        />
-
-        {/* Logo Shield */}
-        <View style={s.logoBadge}>
-          <Icon name="sparkles" size={44} color={C.white} />
-        </View>
-
-        {/* App Title & Tagline */}
-        <Text style={s.title}>
-          Reality<Text style={s.titleHighlight}>Chain</Text>
-        </Text>
-        <Text style={s.subtitle}>AI ON-DEMAND LOCAL SERVICES</Text>
-
-        <View style={s.trustBadge}>
-          <Icon name="shield-checkmark" size={14} color={C.green} />
-          <Text style={s.trustText}>Verified Pros · Instant AI Pricing</Text>
-        </View>
+        <Text style={s.name}>RealityChain</Text>
+        <Text style={s.tag}>Local services, on the record</Text>
       </Animated.View>
     </Animated.View>
   );
 }
 
 const s = StyleSheet.create({
-  splashContainer: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: C.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
+  screen: {
+    ...StyleSheet.absoluteFill,
     zIndex: 99999,
-    elevation: 9999
-  },
-  logoWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  pulseRing: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: 'rgba(79, 70, 229, 0.25)',
-    borderWidth: 2,
-    borderColor: 'rgba(139, 92, 246, 0.4)'
-  },
-  logoBadge: {
-    width: 90,
-    height: 90,
-    borderRadius: 28,
-    backgroundColor: C.indigo,
+    elevation: 9999,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: C.indigo,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    elevation: 10,
-    marginBottom: 20
+    backgroundColor: C.ink
   },
-  title: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: C.white,
-    letterSpacing: -1
-  },
-  titleHighlight: {
-    color: C.purple
-  },
-  subtitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#A5B4FC',
-    letterSpacing: 2,
-    marginTop: 4
-  },
-  trustBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginTop: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)'
-  },
-  trustText: {
-    color: '#E2E8F0',
-    fontSize: 12,
-    fontWeight: '700'
-  }
+  // Positioned absolutely so the mark stays exactly where the native splash put it.
+  nameWrap: { position: 'absolute', top: '50%', marginTop: SPLASH_MARK_SIZE / 2 + 18, alignItems: 'center' },
+  name: { color: C.white, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 },
+  tag: { color: 'rgba(255,255,255,0.55)', fontSize: 13, marginTop: 4 }
 });

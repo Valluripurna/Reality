@@ -1,128 +1,83 @@
-import React, { useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
 import { C, Icon } from './ui';
 
 type SwipeButtonProps = {
   label: string;
   onSwipeComplete: () => void;
-  color?: string;
+  disabled?: boolean;
+  busy?: boolean;
 };
 
-export function SwipeButton({ label, onSwipeComplete, color = C.green }: SwipeButtonProps) {
-  const [containerWidth, setContainerWidth] = useState(300);
-  const panX = useRef(new Animated.Value(0)).current;
+const KNOB = 50;
+const INSET = 4;
 
-  const maxSwipe = Math.max(100, containerWidth - 54);
+/**
+ * Slide-to-confirm, used for stage changes a pro should not trigger by
+ * accident. Handlers read from refs so they always see the latest props
+ * (an earlier version captured the first render's callback and PIN).
+ */
+export function SwipeButton({ label, onSwipeComplete, disabled = false, busy = false }: SwipeButtonProps) {
+  const [width, setWidth] = useState(320);
+  const x = useRef(new Animated.Value(0)).current;
+  const max = Math.max(100, width - KNOB - INSET * 2);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gestureState) => {
-        const dx = Math.max(0, Math.min(gestureState.dx, maxSwipe));
-        panX.setValue(dx);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx >= maxSwipe * 0.75) {
-          Animated.timing(panX, {
-            toValue: maxSwipe,
-            duration: 150,
-            useNativeDriver: false
-          }).start(() => {
-            onSwipeComplete();
-            setTimeout(() => {
-              panX.setValue(0);
-            }, 800);
-          });
-        } else {
-          Animated.spring(panX, {
-            toValue: 0,
-            bounciness: 10,
-            useNativeDriver: false
-          }).start();
-        }
-      }
-    })
-  ).current;
+  const maxRef = useRef(max);
+  maxRef.current = max;
+  const doneRef = useRef(onSwipeComplete);
+  doneRef.current = onSwipeComplete;
+  const offRef = useRef(disabled || busy);
+  offRef.current = disabled || busy;
 
+  const settle = useCallback(() => Animated.spring(x, { toValue: 0, bounciness: 6, useNativeDriver: false }).start(), [x]);
+
+  const pan = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => !offRef.current,
+    onMoveShouldSetPanResponder: (_, g) => !offRef.current && Math.abs(g.dx) > 4,
+    onPanResponderMove: (_, g) => x.setValue(Math.max(0, Math.min(g.dx, maxRef.current))),
+    onPanResponderRelease: (_, g) => {
+      if (g.dx >= maxRef.current * 0.75 || g.vx > 1) {
+        Animated.timing(x, { toValue: maxRef.current, duration: 120, useNativeDriver: false }).start(() => {
+          doneRef.current();
+          setTimeout(() => x.setValue(0), 500);
+        });
+      } else settle();
+    },
+    onPanResponderTerminate: settle
+  }), [x, settle]);
+
+  const off = disabled || busy;
   return (
     <View
-      style={[s.container, { borderColor: color }]}
-      onLayout={e => setContainerWidth(e.nativeEvent.layout.width)}
+      style={[s.track, off && { backgroundColor: C.surface2 }]}
+      onLayout={e => setWidth(e.nativeEvent.layout.width)}
+      accessibilityRole="adjustable"
+      accessibilityLabel={`${label}. Slide right to confirm.`}
+      accessibilityState={{ disabled: off, busy }}
+      accessibilityActions={[{ name: 'activate' }]}
+      onAccessibilityAction={() => !off && onSwipeComplete()}
     >
-      {/* Background Fill Track */}
-      <Animated.View
-        style={[
-          s.fillTrack,
-          {
-            backgroundColor: color,
-            width: panX.interpolate({
-              inputRange: [0, maxSwipe],
-              outputRange: [50, containerWidth],
-              extrapolate: 'clamp'
-            })
-          }
-        ]}
-      />
-
-      {/* Center Label Text */}
-      <Text style={s.label}>{label} ››</Text>
-
-      {/* Draggable Knob */}
-      <Animated.View
-        {...panResponder.panHandlers}
-        style={[
-          s.knob,
-          {
-            transform: [{ translateX: panX }]
-          }
-        ]}
-      >
-        <Icon name="arrow-forward" color={C.white} size={20} />
+      <Animated.View style={[s.fill, { width: Animated.add(x, KNOB + INSET * 2) }]} />
+      <Text style={[s.label, off && { color: C.faint }]} numberOfLines={1}>{busy ? 'Updating…' : label}</Text>
+      <Animated.View testID="swipe-knob" {...(off ? {} : pan.panHandlers)} style={[s.knob, off && { backgroundColor: C.faint }, { transform: [{ translateX: x }] }]}>
+        <Icon name="arrow-forward" color={C.white} size={22} />
       </Animated.View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  container: {
-    height: 54,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 27,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-    borderWidth: 1.5,
-    marginVertical: 8
-  },
-  fillTrack: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    borderRadius: 27,
-    opacity: 0.25
-  },
-  label: {
-    color: C.navy,
-    fontWeight: '900',
-    fontSize: 14,
-    letterSpacing: 0.5
-  },
+  track: { height: KNOB + INSET * 2, borderRadius: (KNOB + INSET * 2) / 2, backgroundColor: C.surface, justifyContent: 'center', overflow: 'hidden' },
+  fill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: C.brandSoft, borderRadius: (KNOB + INSET * 2) / 2 },
+  label: { textAlign: 'center', fontSize: 16, fontWeight: '600', color: C.ink, paddingHorizontal: KNOB + 16 },
   knob: {
     position: 'absolute',
-    left: 3,
-    top: 3,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: C.navy,
+    left: INSET,
+    width: KNOB,
+    height: KNOB,
+    borderRadius: KNOB / 2,
+    backgroundColor: C.brand,
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    elevation: 5
+    justifyContent: 'center'
   }
 });

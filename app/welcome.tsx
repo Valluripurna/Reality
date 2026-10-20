@@ -1,4 +1,111 @@
-import { useRouter } from 'expo-router'; import { Animated, SafeAreaView, StyleSheet, Text, View } from 'react-native'; import { useEffect, useRef } from 'react';
-import { RealityMark } from '../src/brand'; import { useMarketplace } from '../src/marketplace'; import { Button, C, Icon } from '../src/ui';
-export default function Welcome() { const router = useRouter(); const rise = useRef(new Animated.Value(0)).current; useEffect(() => { Animated.spring(rise, { toValue: 1, useNativeDriver: true, friction: 7 }).start(); }, []); const enter = (role: 'customer' | 'pro') => router.push({ pathname: '/login', params: { role } }); return <SafeAreaView style={s.page}><Animated.View style={[s.center, { opacity: rise, transform: [{ translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [32, 0] }) }] }]}><RealityMark size={88} animated/><Text style={s.name}>RealityChain</Text><Text style={s.tag}>Trusted local help, with every step on record.</Text></Animated.View><View style={s.bottom}><Text style={s.ask}>How will you use RealityChain?</Text><Button label="I need a service" onPress={() => enter('customer')} icon="search"/><View style={{ height: 11 }}/><Button label="I provide services" onPress={() => enter('pro')} icon="construct" secondary/><Text style={s.terms}>By continuing, you agree to record service updates honestly.</Text></View></SafeAreaView> }
-const s = StyleSheet.create({ page: { flex: 1, backgroundColor: C.paper, padding: 22 }, center: { alignItems: 'center', marginTop: 'auto', marginBottom: 'auto' }, name: { color: C.ink, fontSize: 30, fontWeight: '900', marginTop: 17, letterSpacing: -.8 }, tag: { color: C.muted, textAlign: 'center', marginTop: 9, fontSize: 15, lineHeight: 21, maxWidth: 280 }, bottom: { paddingBottom: 13 }, ask: { color: C.ink, fontWeight: '800', fontSize: 16, marginBottom: 12 }, terms: { color: C.muted, fontSize: 11, textAlign: 'center', marginTop: 15, lineHeight: 16 } });
+import { Redirect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useRef } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BrandMark } from '../src/brand';
+import { useMarketplace } from '../src/marketplace';
+import { C, Icon, IconName } from '../src/ui';
+
+const points: { icon: IconName; title: string; body: string }[] = [
+  { icon: 'shield-checkmark-outline', title: 'Pros near you', body: 'Plumbers, electricians, AC techs and more.' },
+  { icon: 'pricetag-outline', title: 'Price agreed upfront', body: 'Compare quotes. Nothing starts until you accept.' },
+  { icon: 'document-text-outline', title: 'Every step on record', body: 'Arrival PIN, photos and receipt, saved for you.' }
+];
+
+export default function Welcome() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { profile, ready } = useMarketplace();
+  const rise = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(rise, { toValue: 1, duration: 520, delay: 120, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [rise]);
+
+  if (ready && profile) return <Redirect href={profile.role === 'pro' ? '/pro' : '/'} />;
+
+  const go = (role: 'customer' | 'pro') => router.push({ pathname: '/login', params: { role } });
+  const enter = (i: number) => ({
+    opacity: rise,
+    transform: [{ translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [14 + i * 6, 0] }) }]
+  });
+
+  return (
+    <View style={[s.page, { paddingTop: insets.top + 24, paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+      <StatusBar style="light" />
+      <View style={s.brandRow}>
+        <BrandMark size={34} color={C.white} />
+        <Text style={s.brandName}>RealityChain</Text>
+      </View>
+
+      <View style={{ flex: 1, justifyContent: 'center' }}>
+        <Animated.Text style={[s.headline, enter(0)]}>Home services,{'\n'}done right.{'\n'}<Text style={{ color: C.brandBright }}>On the record.</Text></Animated.Text>
+        <View style={s.points}>
+          {points.map((p, i) => (
+            <Animated.View key={p.title} style={[s.point, enter(i + 1)]}>
+              <View style={s.pointIcon}><Icon name={p.icon} size={20} color={C.white} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.pointTitle}>{p.title}</Text>
+                <Text style={s.pointBody}>{p.body}</Text>
+              </View>
+            </Animated.View>
+          ))}
+        </View>
+      </View>
+
+      <View style={{ gap: 12 }}>
+        <Pressable
+          testID="welcome-customer"
+          onPress={() => go('customer')}
+          accessibilityRole="button"
+          style={({ pressed }) => [s.primary, pressed && { opacity: 0.88 }]}
+        >
+          <Text style={s.primaryText}>Book a service</Text>
+          <Icon name="arrow-forward" size={20} color={C.ink} />
+        </Pressable>
+        <Pressable
+          testID="welcome-pro"
+          onPress={() => go('pro')}
+          accessibilityRole="button"
+          style={({ pressed }) => [s.secondary, pressed && { backgroundColor: 'rgba(255,255,255,0.08)' }]}
+        >
+          <Text style={s.secondaryText}>I'm a service professional</Text>
+        </Pressable>
+        <Text style={s.legal}>By continuing you agree to our Terms of Service and Privacy Policy.</Text>
+      </View>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  page: { flex: 1, backgroundColor: C.ink, paddingHorizontal: 24 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandName: { color: C.white, fontSize: 19, fontWeight: '700', letterSpacing: -0.4 },
+  headline: { color: C.white, fontSize: 38, lineHeight: 44, fontWeight: '700', letterSpacing: -1.2 },
+  points: { marginTop: 36, gap: 20 },
+  point: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  pointIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  pointTitle: { color: C.white, fontSize: 15, fontWeight: '600' },
+  pointBody: { color: 'rgba(255,255,255,0.6)', fontSize: 13, lineHeight: 18, marginTop: 2 },
+  primary: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: C.white,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
+  },
+  primaryText: { color: C.ink, fontSize: 16, fontWeight: '700' },
+  secondary: {
+    height: 56,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  secondaryText: { color: C.white, fontSize: 16, fontWeight: '600' },
+  legal: { color: 'rgba(255,255,255,0.45)', fontSize: 12, textAlign: 'center', marginTop: 4, lineHeight: 17 }
+});
