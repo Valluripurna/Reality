@@ -48,7 +48,9 @@ export default function Home() {
   const known = profile.locationName || profile.address;
   const place = known
     ? profile.locationName || profile.address!.split(',')[0]
-    : locStatus.state === 'locating' ? 'Finding your location…' : 'Set your address';
+    : profile.liveLat != null && profile.liveLng != null
+      ? 'Current location'
+      : locStatus.state === 'locating' ? 'Finding your location…' : 'Set your address';
   const placeSub = profile.address
     ? profile.address
     : locStatus.state === 'error' ? 'Location is off — tap to set your address' : locStatus.state === 'locating' ? 'Getting an accurate GPS fix' : 'Tap to add your service address';
@@ -67,7 +69,7 @@ export default function Home() {
         left={
           <Pressable testID="location-picker" onPress={() => setLocationOpen(true)} accessibilityRole="button" accessibilityLabel="Change service address" hitSlop={6}>
 <View style={s.locRow}>
-                <View style={{ marginLeft: -8 }}>
+                <View style={{ marginLeft: -12 }}>
                   <Icon name="location" size={14} color={C.ink} />
                 </View>
                 <Text style={type.bodyStrong} numberOfLines={1}>{place}</Text>
