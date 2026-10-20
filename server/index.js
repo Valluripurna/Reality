@@ -22,7 +22,7 @@ const { randomInt } = require('crypto');
  * Override with REMOTE_CONFIG_JSON (a JSON string) without shipping a build.
  */
 const DEFAULT_REMOTE_CONFIG = {
-  version: 5,
+  version: 6,
   banners: [
     {
       id: 'customer-greeting-v2',
@@ -44,7 +44,7 @@ const DEFAULT_REMOTE_CONFIG = {
       body: 'Go online to see nearby jobs that fit your skills.',
       cta: 'Update services',
       icon: 'briefcase-outline',
-      tone: 'dark',
+      tone: 'cream',
       action: { type: 'route', href: '/profile' },
       dismissible: false
     },

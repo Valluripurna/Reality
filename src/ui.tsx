@@ -34,6 +34,7 @@ export const C = {
   bg: '#FFFFFF',
   surface: '#F5F5F2',
   surface2: '#ECECE7',
+  cream: '#F4EFE2',
   white: '#FFFFFF',
 
   // Hairlines

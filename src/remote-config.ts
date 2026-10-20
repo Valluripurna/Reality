@@ -11,7 +11,7 @@ import { apiBase } from './db';
  * more surfaces can be added without another store release.
  */
 export type BannerAudience = 'customer' | 'pro' | 'bookings' | 'records';
-export type BannerTone = 'brand' | 'dark' | 'amber';
+export type BannerTone = 'brand' | 'cream' | 'dark' | 'amber';
 export type BannerAction = { type: 'route'; href: string } | { type: 'url'; url: string } | { type: 'assistant' };
 
 export type BannerConfig = {
@@ -43,7 +43,7 @@ const DISMISS_TTL = 24 * 60 * 60 * 1000;
 type DismissedEntry = { id: string; at: number };
 
 export const DEFAULT_CONFIG: RemoteConfig = {
-  version: 5,
+  version: 6,
   banners: [
     {
       id: 'customer-greeting-v2',
@@ -65,7 +65,7 @@ export const DEFAULT_CONFIG: RemoteConfig = {
       body: 'Go online to see nearby jobs that fit your skills.',
       cta: 'Update services',
       icon: 'briefcase-outline',
-      tone: 'dark',
+      tone: 'cream',
       action: { type: 'route', href: '/profile' },
       dismissible: false
     },
@@ -122,7 +122,7 @@ function parseBanner(value: unknown): BannerConfig | null {
   const title = text(b.title);
   if (!id || !title) return null;
   if (!AUDIENCES.includes(b.audience as BannerAudience)) return null;
-  const tone = b.tone === 'dark' || b.tone === 'amber' || b.tone === 'brand' ? b.tone : 'brand';
+  const tone = b.tone === 'dark' || b.tone === 'amber' || b.tone === 'cream' || b.tone === 'brand' ? b.tone : 'brand';
   return {
     id,
     enabled: b.enabled !== false,

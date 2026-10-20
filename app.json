@@ -80,7 +80,8 @@
       ],
       "expo-status-bar",
       "expo-font",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

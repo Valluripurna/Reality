@@ -59,7 +59,7 @@ describe('remote banner config', () => {
       banners: [
         { id: 'a', audience: 'admin', title: 'no' },
         { id: 'b', audience: 'customer', title: 'x'.repeat(400), body: 'y'.repeat(500), tone: 'neon', icon: 'sparkles', action: { type: 'route', href: 'https://evil.test' }, dismissible: false },
-        { id: 'c', audience: 'pro', title: 'ok', action: { type: 'url', url: 'https://realitychain.app' } }
+        { id: 'c', audience: 'pro', title: 'ok', tone: 'cream', action: { type: 'url', url: 'https://realitychain.app' } }
       ]
     });
     expect(cfg!.banners).toHaveLength(2);
@@ -69,6 +69,7 @@ describe('remote banner config', () => {
     expect(b.tone).toBe('brand');
     expect(b.action).toBeUndefined();
     expect(b.dismissible).toBe(false);
+    expect(c.tone).toBe('cream');
     expect(c.action).toEqual({ type: 'url', url: 'https://realitychain.app' });
   });
 

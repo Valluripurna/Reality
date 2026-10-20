@@ -108,9 +108,12 @@ export default function Home() {
               onPress={() => router.push({ pathname: '/request', params: { category: item.kind } })}
               accessibilityRole="button"
               accessibilityLabel={`${item.kind}, from ${rupee(startingPrice(item.kind))}`}
-              style={({ pressed }) => [s.tile, pressed && { opacity: 0.6 }]}
+              android_ripple={{ color: 'transparent' }}
+              style={({ pressed }) => [s.tile, pressed && { transform: [{ scale: 0.96 }] }]}
             >
-              <View style={s.tileIcon}><Icon name={item.icon as IconName} size={18} color={C.ink} /></View>
+              <View style={s.tileIcon}>
+                <Icon name={item.icon.replace(/-outline$/, '') as IconName} size={24} color={C.ink2} />
+              </View>
               <Text style={s.tileLabel} numberOfLines={2}>{item.kind}</Text>
             </Pressable>
           ))}
@@ -217,10 +220,22 @@ const s = StyleSheet.create({
   activeSub: { color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 2 },
   progress: { flexDirection: 'row', gap: 4, marginTop: 14 },
   progressSeg: { flex: 1, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 18, marginHorizontal: -6, rowGap: 20 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 18, marginHorizontal: -6, rowGap: 24 },
   tile: { width: '25%', alignItems: 'center', paddingHorizontal: 6 },
-  tileIcon: { width: 50, height: 50, borderRadius: 8, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
-  tileLabel: { marginTop: 5, fontSize: 10.5, lineHeight: 13, fontWeight: '500', color: C.ink, textAlign: 'center' },
+  tileIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    backgroundColor: C.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: C.ink,
+    shadowOpacity: 0.08,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2
+  },
+  tileLabel: { marginTop: 6, fontSize: 10.5, lineHeight: 13, fontWeight: '500', color: C.ink, textAlign: 'center' },
   steps: { flexDirection: 'row', gap: 10 },
   step: { flex: 1, backgroundColor: C.surface, borderRadius: radius.md, padding: 12, gap: 3 },
   stepNum: { fontSize: 20, fontWeight: '700', color: C.brand, marginBottom: 4 }
