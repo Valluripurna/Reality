@@ -69,7 +69,7 @@ export default function Home() {
         left={
           <Pressable testID="location-picker" onPress={() => setLocationOpen(true)} accessibilityRole="button" accessibilityLabel="Change service address" hitSlop={6}>
 <View style={s.locRow}>
-                <View style={{ marginLeft: -12 }}>
+                <View style={{ marginLeft: -16 }}>
                   <Icon name="location" size={14} color={C.ink} />
                 </View>
                 <Text style={type.bodyStrong} numberOfLines={1}>{place}</Text>
